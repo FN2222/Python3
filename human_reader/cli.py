@@ -270,14 +270,14 @@ def _print_event(event: ReadEvent, config: ReaderConfig) -> None:
     line += ")"
     if bar:
         line = f"{bar} {line}"
-    print(line)
+    print(line, flush=True)
     if event.kind is ReadEventKind.READ_VIEWPORT and event.excerpt:
         preview = event.excerpt.replace("\n", " ")
         if len(preview) > 96:
             preview = preview[:95] + "…"
-        print(f"    「{preview}」")
-    if event.kind is ReadEventKind.STOPPED:
-        print(f"    stop_reason={event.stop_reason}", file=sys.stderr)
+        print(f"    「{preview}」", flush=True)
+    if event.kind is ReadEventKind.STOPPED and event.stop_reason not in {"", "finished"}:
+        print(f"    stop_reason={event.stop_reason}", file=sys.stderr, flush=True)
 
 
 def _progress_bar(event: ReadEvent) -> str:
