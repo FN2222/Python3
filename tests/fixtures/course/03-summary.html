@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <title>第三课 收束与保存</title>
+</head>
+<body>
+  <nav class="outline">
+    <a href="01-intro.html">第一课</a>
+    <a href="02-routing.html">第二课</a>
+    <a href="03-summary.html" class="current">第三课</a>
+  </nav>
+  <article>
+    <h1>第三课 收束与保存</h1>
+    <p>最后一课没有「下一课」。对阅读器来说，这就是正常结束，而不是错误。它应当把这一页也按同样的节奏读完：打开、逐屏滚动、查看配图、整理笔记、写入 Markdown。</p>
+    <p>保存的结果必须是人能读的文件：每一课一个目录，正文是 Markdown，拓扑图是旁边的 SVG 或 PNG，课程根目录有一份按顺序排列的索引，以及一份由已读笔记拼接而成的全文。全文不是另外一次批量抓取，只是把已经读过的页面按原顺序连起来。</p>
+    <p>如果中途因为验证码停下，索引里会标明停在哪一页。你在浏览器里处理完之后，用同一个输出目录继续，从下一课（或失败的那一课）接着读，仍然禁止开多个任务一起补洞。</p>
+    <p>到这里，三条课已经覆盖了「登录后的顺序阅读」模型。请确认笔记里同时有文字和拓扑图，然后结束本次学习。</p>
+    <svg class="diagram" viewBox="0 0 300 80" xmlns="http://www.w3.org/2000/svg" aria-label="保存结构示意图">
+      <rect x="8" y="20" width="80" height="40" fill="#ffe"/>
+      <text x="48" y="45" text-anchor="middle">笔记</text>
+      <rect x="110" y="20" width="80" height="40" fill="#eef"/>
+      <text x="150" y="45" text-anchor="middle">配图</text>
+      <rect x="212" y="20" width="80" height="40" fill="#efe"/>
+      <text x="252" y="45" text-anchor="middle">索引</text>
+    </svg>
+  </article>
+</body>
+</html>
