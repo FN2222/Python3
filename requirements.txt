@@ -1,0 +1,4 @@
+# Core human-like reader uses the Python 3 standard library only.
+# Optional real-browser backend (scroll / wheel / mousemove):
+#   pip install playwright && python3 -m playwright install chromium
+# playwright>=1.40.0
