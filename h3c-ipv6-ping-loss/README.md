@@ -9,6 +9,7 @@
 | 能 ping 通，GUA 邻居一直 STALE，同 MAC 的 FE80 是 REACH | Echo 不刷新 NUD；STALE 仍可转发 | 否 |
 | 扫很多个陌生 IPv6，每个地址大约丢 1 个 | 每个新邻居都要做一次 ND | 否 |
 | 连续 ping 对端本机 IPv6，随机/规律丢几个；过交换机的业务不丢 | 控制平面 ICMP 低优先级 + CPU 防护限速 | 多数情况下否 |
+| 日志 `DRVPLAT/4/SOFTCAR DROP` 且 `PktType=IPv6_ND_PASS` | ND 上 CPU 超软限速被丢，NUD 刷新失败 | 会间接造成偶发 ping 丢包 / 长期 STALE |
 | 接口 CRC / error / 光功率持续异常，v4/v6 都丢 | 物理层 | 是 |
 | 固定某几个地址永远丢，其它地址正常 | ND 表满、ACL、前缀长度、本机防护 | 要查配置 |
 | IPv4 互 ping 不丢，只有 IPv6 丢 | ND / ICMPv6 / 本机 IPv6 策略 | 要查 IPv6 专属项 |
@@ -300,6 +301,53 @@ undo traffic classifier ICMP6
 - 不要指望「一键关闭全部 CPU 防护」。预定义策略关不掉，硬关等于把 STP/LACP/ARP 的限速一起拆掉。
 - 不要用 `ipv6 icmpv6 error-interval 0` 当关闭 CPU 防护，它只管差错报文。
 - 5 包丢 1 个、默认 ICMPv6 限速通常是几百～两千 pps：**这点 ping 打不满 CAR**。关掉/放宽限速，seq=3 超时多半还在。那是 ICMP 上 CPU、优先级低，不是限速桶空了。
+
+### 2.4 日志 `SOFTCAR DROP` / `IPv6_ND_PASS` 会不会让 ping IPv6 丢包
+
+会，但是 **丢的不是 Echo 本身**，是邻居发现。和「能 ping 通、偶发超时、GUA 一直 STALE」可以对上。
+
+现场 `JiangSuHaiShang_DF_SP_SW03_HSFDC001` 的 `GigabitEthernet1/0/24`：
+
+```text
+%DRVPLAT/4/SOFTCAR DROP: ... PktType=IPv6_ND_PASS, SrcMAC=305f-7769-4883,
+Dropped from interface=GigabitEthernet1/0/24 ... TotalCnt=9425455
+%DRVPLAT/4/SOFTCAR DROP: ... PktType=ARP, SrcMAC=0046-0000-4b27, ... Stage=63
+%IFNET/3/PHY_UPDOWN: Physical state on the interface GigabitEthernet1/0/24 changed to down
+```
+
+怎么读：
+
+| 字段 | 含义 |
+| --- | --- |
+| `SOFTCAR DROP` | 上送 CPU 的协议报文超过软件 CAR，驱动丢掉超额部分 |
+| `PktType=IPv6_ND_PASS` | 丢的是 NS/NA/RS/RA 这类 ND，**不是** Echo Request/Reply |
+| `PktType=ARP` | 同一口上 IPv4 ARP 也在超速被丢 |
+| `TotalCnt` 到百万级 | 累计值，要看是不是还在涨，不能单凭一个大数字定故障 |
+| 口 down/up | 那几秒 v4/v6 都会断，和 SOFTCAR 是另一件事 |
+
+对应 ping 的三条路径：
+
+1. **MAC 还在、表项 STALE：Echo 多数能通。**  
+   STALE 继续用缓存 MAC 转发，所以你会看到「能 ping 通」。ND 被丢 → NUD 确认不了 → GUA **一直 STALE**。这和前面截图一致。
+2. **NUD 探测那一轮：会丢 ping。**  
+   STALE 超时后设备发 NS，对端回 NA。NA/NS 若被 SOFTCAR 丢掉，这一轮解析失败，对应的 Echo 就会 `Request time out`。表现为中间丢 1 个、过一会又通。
+3. **表项被删掉之后：会连续丢，直到重新学到。**  
+   NUD 多次失败会清邻居，接下来的 ping 要重新组播 NS，首包必丢，严重时整段不通。
+
+同一口上很多不同源 MAC 的 ARP 被丢，说明 `G1/0/24` 不是「只有对端一台设备」的安静直连，而是带着大量主机 ARP/ND 上 CPU（对端是交换机、VLAN 网关在本机、或 ND/ARP 检测把报文复制给 CPU）。CPU 协议队列已经挤，Echo 也可能在别的队列被丢，但这条日志 **没有**打出 ICMP/ICMPv6 类型，不要把 ND 丢包数直接当成 ping 丢包数。
+
+建议：
+
+```text
+display logbuffer reverse | include SOFTCAR
+display qos policy control-plane pre-defined
+display ipv6 neighbors interface GigabitEthernet 1/0/24 verbose
+display interface GigabitEthernet 1/0/24
+```
+
+- `IPv6_ND_PASS` 的 `TotalCnt` 还在涨，同时 GUA 长期 STALE、ping 偶发超时 → 就是这条因果。
+- 只在口 down/up 那几秒丢 → 先查链路/光模块，不是 SOFTCAR。
+- 不要为了消日志去关整机 CPU 防护。先查这个口为什么有这么多 ARP/ND 上送（网关 SVI、ND snooping、对端是否在扫网）。
 
 ---
 

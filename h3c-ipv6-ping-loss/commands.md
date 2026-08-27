@@ -226,6 +226,19 @@ undo traffic behavior ICMP6
 undo traffic classifier ICMP6
 ```
 
+SOFTCAR / ND 上送（`DRVPLAT/4/SOFTCAR DROP`）：
+
+```text
+display logbuffer reverse | include SOFTCAR
+display qos policy control-plane pre-defined
+display ipv6 neighbors interface GigabitEthernet 1/0/24 verbose
+display interface GigabitEthernet 1/0/24
+# 部分版本（probe 视图，生产慎用）
+system-view
+probe
+ display rxtx softcar show slot 1
+```
+
 攻击防范：
 
 ```text
