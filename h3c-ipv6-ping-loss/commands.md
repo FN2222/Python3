@@ -76,8 +76,8 @@ ping ipv6 -a 2001:db8:12::1 2001:db8:12::2
 ping ipv6 -s 32 2001:db8:12::2
 ping ipv6 -s 1400 2001:db8:12::2
 
-# 链路本地（必须带出接口）
-ping ipv6 fe80::xxxx GigabitEthernet 1/0/24
+# 链路本地（必须指定出接口；部分旧版本把接口写在地址后面）
+ping ipv6 -i GigabitEthernet 1/0/24 fe80::xxxx
 
 # 同链路 IPv4（有双栈才做）
 ping <peer-ipv4>
@@ -110,9 +110,9 @@ ip -6 route
 ```text
 display ipv6 neighbors all
 display ipv6 neighbors all verbose
-display ipv6 neighbors GigabitEthernet 1/0/24
+display ipv6 neighbors interface GigabitEthernet 1/0/24
 display ipv6 neighbors 2001:db8:12::2 verbose
-display ipv6 neighbors count
+display ipv6 neighbors all count
 display ipv6 neighbors entry-limit
 display ipv6 neighbors statistics all
 display mac-address interface GigabitEthernet 1/0/24
@@ -142,10 +142,9 @@ display ipv6 statistics
 display current-configuration | include icmp
 ```
 
-复位后再复现一次，看计数怎么涨：
+复位后再复现一次，看计数怎么涨（没有单独的 `reset ipv6 icmp statistics`，这条会清掉 IPv6 和 ICMPv6 统计）：
 
 ```text
-reset ipv6 icmp statistics
 reset ipv6 statistics
 ping ipv6 -c 50 2001:db8:12::2
 display ipv6 icmp statistics

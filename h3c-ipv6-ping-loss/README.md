@@ -45,7 +45,7 @@ ping ipv6 2001:db8:12::2
    v4 不丢、v6 丢 → 排除物理层，专查 IPv6。
 
 2. **链路本地**  
-   `ping ipv6 fe80::<对端> GigabitEthernet1/0/24`  
+   `ping ipv6 -i GigabitEthernet 1/0/24 fe80::<对端>`  
    链路本地必须带出接口。不通 = 二层/ND 有问题；通而全球单播不通 = 地址/路由/本机策略。
 
 3. **小包**  
@@ -84,7 +84,7 @@ Request time out
 
 ```text
 display ipv6 neighbors all
-display ipv6 neighbors GigabitEthernet 1/0/24 verbose
+display ipv6 neighbors interface GigabitEthernet 1/0/24 verbose
 ```
 
 | 状态 | 含义 |
@@ -251,7 +251,7 @@ display ipv6 interface GigabitEthernet 1/0/24
 ```text
 display ipv6 interface GigabitEthernet 1/0/24
 # 记下对端 fe80::...
-ping ipv6 fe80::xxxx GigabitEthernet 1/0/24
+ping ipv6 -i GigabitEthernet 1/0/24 fe80::xxxx
 ```
 
 链路本地不通：先查二层、STP、是否 shutdown、是否配了丢 NS/NA 的 ACL。  
@@ -262,7 +262,7 @@ ping ipv6 fe80::xxxx GigabitEthernet 1/0/24
 ```text
 display ipv6 neighbors all
 display ipv6 neighbors entry-limit
-display ipv6 neighbors count
+display ipv6 neighbors all count
 display mac-address interface GigabitEthernet 1/0/24
 ```
 
@@ -389,7 +389,7 @@ display cpu-usage
 display cpu-defend statistics
 display acl ipv6 all
 ping ipv6 -c 100 <对端全球单播>
-ping ipv6 -c 20 fe80::<对端> <出接口>
+ping ipv6 -c 20 -i <出接口> fe80::<对端>
 ```
 
 再补三句话：
