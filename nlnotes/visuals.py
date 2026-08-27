@@ -396,7 +396,7 @@ def render_packet_flow(cfg: Config, visual: dict[str, Any], out_dir: Path) -> di
 
 def _save_steps_grid(cfg: Config, stills: list[Image.Image], path: Path) -> None:
     """把每步的静态图拼成一张"分步静态图",保证任何 Markdown 阅读器都能看懂过程。"""
-    cols = max(1, int(cfg["steps_grid_cols"]))
+    cols = max(1, min(int(cfg["steps_grid_cols"]), len(stills)))
     scale = 0.62
     tw, th = int(stills[0].width * scale), int(stills[0].height * scale)
     rows = math.ceil(len(stills) / cols)

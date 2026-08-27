@@ -101,6 +101,9 @@ def _collect_figure_assets(note: dict[str, Any], index: SourceIndex,
             fid = fig.get("figure_id")
             meta = by_id.get(fid)
             if not meta:
+                # 正常情况下 verify 的 G001 会先拦住;这里兜底,避免 assemble 直接崩
+                log(f"figure_id 不存在,已跳过: {fid}", "warn")
+                out[fid] = {"path": "", "page": "?", "file": ""}
                 continue
             src = extract_dir / "figures" / meta["file"]
             dst = assets_dir / meta["file"]
