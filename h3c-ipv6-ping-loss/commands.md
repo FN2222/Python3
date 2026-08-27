@@ -249,6 +249,16 @@ display link-aggregation verbose
 display mac-address 0026-7703-13cb vlan 30
 ```
 
+MAC 迁移抑制（**不是**降刷新频率；超阈值会把口 down）：
+
+```text
+system-view
+mac-address notification mac-move
+mac-address notification mac-move suppression interval 30 threshold 3
+interface GigabitEthernet 1/0/24
+ mac-address notification mac-move suppression
+```
+
 攻击防范：
 
 ```text

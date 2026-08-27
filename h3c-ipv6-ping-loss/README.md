@@ -383,6 +383,69 @@ display interface GigabitEthernet 1/0/5
 
 处理顺序：确认 `G1/0/2` 与 `G1/0/5` 是不是该做聚合却做成了两条独立二层；不是聚合就 shutdown 其中一条验证漂移是否停止。VLAN 60 对 `G1/0/14` / `G1/0/24` 同样处理。漂移停了再看 SOFTCAR 计数还涨不涨。
 
+### 2.6 CPU/内存都正常时，还有哪些思路
+
+**平均 CPU 不高，不能排除本机 ping 丢包。**  
+ICMP 在控制平面是低优先级队列。平均占用 10% 时，瞬时 OSPF/BFD/ARP/ND/定时任务插队，仍可把 Echo 挤掉或延后。H3C 官方也按这个口径讲：本机 ping 和业务转发不是一条路。
+
+「只有个别 MAC 在漂」也够严重：  
+一张表里就几条，但每条累计几十万～几百万次、秒级来回，说明 **那一对口之间有稳定环路**，不是全网风暴。环不在你 ping 的 VLAN 上，就不会解释那次丢包；环正好经过你的互联口（比如 VLAN 60 的 `G1/0/24`），就会。
+
+#### 不要指望「限制 MAC 漂移频率 / 降低 MAC 表刷新」
+
+H3C 的 `mac-address notification mac-move suppression` **不是**把 MAC 学习变慢，而是：
+
+> 一个检测周期内，某 MAC 从某口迁出/迁入次数超过阈值 → **把该口 shutdown**，过 `interval` 再自己 up（或你手动 undo shutdown）。
+
+缺省大致是阈值 3 次 / 抑制 30 秒（以本机 `?` 为准）。它是环路应急，会短时断业务，**不会**减少 MAC 表改写频率；环还在，口恢复后又继续漂。  
+也没有「全局降低 MAC 刷新频率」这种健康旋钮：学习变慢 = 未知单播泛洪变多，一般更糟。
+
+若要用抑制功能，只开在 **明确成环的接入/互联口**，并接受口会被打 down：
+
+```text
+system-view
+mac-address notification mac-move
+mac-address notification mac-move suppression interval 30 threshold 3
+interface GigabitEthernet 1/0/24
+ mac-address notification mac-move suppression
+```
+
+更干净的验证仍是：业务允许时 **shutdown 成环一对口里的一条**，看 `mac-move` 是否立刻停。
+
+#### 建议按这个顺序换思路（CPU/内存正常仍适用）
+
+1. **换测量对象**  
+   不要只 ping 对端交换机本机 IPv6。让两端下挂主机互 ping（或 ping 对端下面主机）。业务 0 丢、本机偶发丢 → 当控制平面现象结案，别再调 MAC/CPU。
+
+2. **同链路对照**  
+   同口 IPv4 本机 ping、链路本地 `ping ipv6 -i <口> fe80::...`、全球单播、小包 `-s 32`、拉长样本 `-c 100 -m 200`。只 v6 本机丢 → ND/ICMP 控制平面；v4/v6 都丢 → 二层/物理。
+
+3. **看 softcar 丢的是谁，而不是平均 CPU**  
+   ```text
+   display logbuffer reverse | include SOFTCAR
+   # 支持 probe 的版本
+   system-view
+   probe
+    debug rxtx softcar show slot 1
+   ```  
+   知了社区有直连丢包案例：softcar 里 `icmp` 默认约 200 pps，调高后本机 ping 不丢。你现场已有 `IPv6_ND_PASS`/`ARP`；再确认有没有 `icmp`/`icmp6` 行在涨。
+
+4. **用静态 ND 做一次隔离（仅测试）**  
+   ```text
+   ipv6 neighbor <对端GUA> <对端MAC> GigabitEthernet 1/0/22
+   ping ipv6 -c 100 -m 200 <对端GUA>
+   ```  
+   静态 ND 后仍偶发丢 → 不是 ND 解析；不丢了 → ND/SOFTCAR 这条线成立。测完删静态邻居。
+
+5. **确认漂移 VLAN 是否就是 ping 的 VLAN**  
+   你之前 ping 在 VLAN 10 网段、漂移在 30/60。先 `display ipv6 interface` / `display vlan` 对一下。不是同一 VLAN、流量也不过 `G1/0/24`，就别拿 30 的漂移当根因。
+
+6. **物理层仍要扫一眼**  
+   `display interface` 的 CRC/error、光功率、口是否 flapping。CPU 正常、口 flapping，丢包仍可以是物理抖动。
+
+7. **双边对称测**  
+   A→B 丢、B→A 不丢 → 看 B 的本机回包/CPU 防护；两边都丢 → 链路或两边共有的二层问题。
+
 ---
 
 ## 3. 形态 C：物理层
