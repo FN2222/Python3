@@ -7,3 +7,4 @@ out/
 .env
 *.log
 tests/_tmp/
+config/pipeline.json
