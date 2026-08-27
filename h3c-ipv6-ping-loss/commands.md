@@ -197,6 +197,35 @@ display qos cpu-car
 display qos-car
 ```
 
+S5130S-28S-EI / R6328（预定义 CoPP **关不掉**，只能覆盖 ICMPv6）：
+
+```text
+display qos policy control-plane pre-defined
+display qos policy control-plane slot 1
+
+system-view
+traffic classifier ICMP6 operator or
+ if-match control-plane protocol icmp6
+quit
+traffic behavior ICMP6
+ car cir 10240
+quit
+qos policy ICMP6-LOOSE
+ classifier ICMP6 behavior ICMP6
+quit
+control-plane slot 1
+ qos apply policy ICMP6-LOOSE inbound
+quit
+
+# 回退
+control-plane slot 1
+ undo qos apply policy ICMP6-LOOSE inbound
+quit
+undo qos policy ICMP6-LOOSE
+undo traffic behavior ICMP6
+undo traffic classifier ICMP6
+```
+
 攻击防范：
 
 ```text

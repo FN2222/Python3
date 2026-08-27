@@ -239,6 +239,68 @@ display cpu-defend car icmpv6 software slot 1
 4. IPv4 上有人会配 `ip icmp rate-limit echo 1000`。  
    IPv6 对应的 `ipv6 icmpv6 error-interval` **只管 ICMPv6 差错报文，不管 Echo**，改它解决不了 ping 丢包。
 
+### 2.3 S5130S-28S-EI / Comware 7.1.070 R6328：不要「关闭」，只覆盖 ICMPv6 限速
+
+这台机器没有中高端的 `cpu-defend`，CPU 防护是 **控制平面预定义 QoS 策略**。  
+官方行为：预定义策略缺省生效，**没有关闭/删除命令**。`undo qos apply policy` 只能撤掉你自己加的策略，预定义会回来。
+
+先看再改：
+
+```text
+display qos policy control-plane pre-defined
+display qos policy control-plane slot 1
+if-match control-plane protocol ?
+```
+
+记下两件事：协议名是 `icmp6` 还是 `icmpv6`；限速单位是 `pps` 还是 `kbps`。S5130 系列命令参考里是 `icmp6`。
+
+只放开 ICMPv6（测试用，测完必须撤）：
+
+```text
+system-view
+traffic classifier ICMP6 operator or
+ if-match control-plane protocol icmp6
+quit
+traffic behavior ICMP6
+ car cir 10240
+quit
+qos policy ICMP6-LOOSE
+ classifier ICMP6 behavior ICMP6
+quit
+control-plane slot 1
+ qos apply policy ICMP6-LOOSE inbound
+quit
+```
+
+`car cir 10240` 的单位跟预定义表一致。若 `display` 里是 `(pps)`，这就是 10240 pps；若是 `(kbps)` 就是 10240 kbps。本机用 `car cir ?` 看允许的最大值，能开多大开多大。`if-match` 报错就改成 `icmpv6`。
+
+独立设备一般是 `slot 1`。IRF 把 slot 换成成员号。`control-plane slot 1` 不存在就试 `control-plane`。
+
+确认：
+
+```text
+display qos policy control-plane slot 1
+ping ipv6 -c 100 -m 200 <对端>
+```
+
+回退（预定义防护恢复）：
+
+```text
+system-view
+control-plane slot 1
+ undo qos apply policy ICMP6-LOOSE inbound
+quit
+undo qos policy ICMP6-LOOSE
+undo traffic behavior ICMP6
+undo traffic classifier ICMP6
+```
+
+不要做：
+
+- 不要指望「一键关闭全部 CPU 防护」。预定义策略关不掉，硬关等于把 STP/LACP/ARP 的限速一起拆掉。
+- 不要用 `ipv6 icmpv6 error-interval 0` 当关闭 CPU 防护，它只管差错报文。
+- 5 包丢 1 个、默认 ICMPv6 限速通常是几百～两千 pps：**这点 ping 打不满 CAR**。关掉/放宽限速，seq=3 超时多半还在。那是 ICMP 上 CPU、优先级低，不是限速桶空了。
+
 ---
 
 ## 3. 形态 C：物理层
