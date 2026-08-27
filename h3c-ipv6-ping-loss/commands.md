@@ -239,6 +239,16 @@ probe
  display rxtx softcar show slot 1
 ```
 
+MAC 漂移（二层环路）：
+
+```text
+display mac-address mac-move
+display stp brief
+display stp abnormal-port
+display link-aggregation verbose
+display mac-address 0026-7703-13cb vlan 30
+```
+
 攻击防范：
 
 ```text

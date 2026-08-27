@@ -10,6 +10,7 @@
 | 扫很多个陌生 IPv6，每个地址大约丢 1 个 | 每个新邻居都要做一次 ND | 否 |
 | 连续 ping 对端本机 IPv6，随机/规律丢几个；过交换机的业务不丢 | 控制平面 ICMP 低优先级 + CPU 防护限速 | 多数情况下否 |
 | 日志 `DRVPLAT/4/SOFTCAR DROP` 且 `PktType=IPv6_ND_PASS` | ND 上 CPU 超软限速被丢，NUD 刷新失败 | 会间接造成偶发 ping 丢包 / 长期 STALE |
+| `display mac-address mac-move` 同一 MAC 在两个口之间来回跳 | 二层环路或双上行没做聚合 | 是，要先拆环 |
 | 接口 CRC / error / 光功率持续异常，v4/v6 都丢 | 物理层 | 是 |
 | 固定某几个地址永远丢，其它地址正常 | ND 表满、ACL、前缀长度、本机防护 | 要查配置 |
 | IPv4 互 ping 不丢，只有 IPv6 丢 | ND / ICMPv6 / 本机 IPv6 策略 | 要查 IPv6 专属项 |
@@ -348,6 +349,39 @@ display interface GigabitEthernet 1/0/24
 - `IPv6_ND_PASS` 的 `TotalCnt` 还在涨，同时 GUA 长期 STALE、ping 偶发超时 → 就是这条因果。
 - 只在口 down/up 那几秒丢 → 先查链路/光模块，不是 SOFTCAR。
 - 不要为了消日志去关整机 CPU 防护。先查这个口为什么有这么多 ARP/ND 上送（网关 SVI、ND snooping、对端是否在扫网）。
+
+### 2.5 `mac-move`：同一 MAC 在两个口之间来回跳
+
+这是 **MAC 漂移表**，记录「这个 MAC 刚才还在 A 口，现在从 B 口学到了」。正常终端偶尔漂移一次（换口、无线漫游）没问题；**秒级来回、计数到几十万/几百万，就是环路或双上行**。
+
+现场表（表头被截断，列顺序是 MAC、VLAN、原端口、现端口、时间、漂移次数）：
+
+| MAC | VLAN | 两个口 | 间隔 | 次数 |
+| --- | --- | --- | --- | --- |
+| `0026-7703-13cb` | 30 | GE1/0/2 ↔ GE1/0/5 | 约 5 秒一个来回 | 269 万 |
+| `0026-7710-0148` | 30 | GE1/0/2 ↔ GE1/0/5 | 同一对口 | 71 万 |
+| `b496-9192-c104` | 60 | GE1/0/14 ↔ GE1/0/24 | 1 秒就跳回去 | 见日志 |
+
+怎么读：
+
+1. **不是 ping 统计。** 次数是「这个 MAC 换过多少次端口」，不是丢了多少个包。
+2. **VLAN 30 是一条环：** 两个不同主机 MAC 都在 `G1/0/2` 和 `G1/0/5` 之间对打，几乎可以断定这两口底下把 VLAN 30 桥在一起了（没聚合、STP 没挡住、或对端有环）。
+3. **VLAN 60 是另一条环：** `G1/0/14` 和 `G1/0/24` 之间 1 秒来回。`G1/0/24` 正是前面 SOFTCAR 丢 `IPv6_ND_PASS`/`ARP` 的口——环路会把广播/ND/ARP 从两个口灌进来，CPU 限速被打满是后果，不是原因。
+4. **不要直接拿 VLAN 30 的漂移去解释 VLAN 10 的 IPv6 ping。** 不同 VLAN。若 ping 的互联网段也在 30/60，或业务跨这些 VLAN，才会被这条环拖死。
+
+环路时交换机会：不断改写 MAC 表 → 有的包从错误口出去（丢包、乱序）→ 广播/ARP/ND 风暴上 CPU → SOFTCAR 丢 ND → 邻居变 STALE、ping 偶发超时。所以 **先拆 30 和 60 的环，再回头看 IPv6**。
+
+```text
+display mac-address mac-move
+display stp brief
+display stp abnormal-port
+display link-aggregation verbose
+display mac-address 0026-7703-13cb vlan 30
+display interface GigabitEthernet 1/0/2
+display interface GigabitEthernet 1/0/5
+```
+
+处理顺序：确认 `G1/0/2` 与 `G1/0/5` 是不是该做聚合却做成了两条独立二层；不是聚合就 shutdown 其中一条验证漂移是否停止。VLAN 60 对 `G1/0/14` / `G1/0/24` 同样处理。漂移停了再看 SOFTCAR 计数还涨不涨。
 
 ---
 
