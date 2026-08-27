@@ -1,0 +1,27 @@
+{
+  "pdf_id": "ospf-neighbor-adjacency-69619352",
+  "passed": true,
+  "error_count": 0,
+  "warning_count": 1,
+  "stats": {
+    "quotes_checked": 33,
+    "quotes_matched": 33,
+    "ungrounded_tokens": 0,
+    "figures_available": 2,
+    "figures_used": 2,
+    "visuals": 3,
+    "coverage_ratio": 1.0,
+    "content_pages": 4,
+    "cited_pages": 4,
+    "questions": 8
+  },
+  "errors": [],
+  "warnings": [
+    {
+      "code": "G011",
+      "where": "figures.labels_seen",
+      "message": "共登记了 10 个图内标签(未启用 OCR,无法自动核对): R1、R2、R3、192.168.12.0/24、192.168.23.0/24、OSPF neighbor topology、R1、R2、R3、DR/BDR election topology",
+      "fix": "如需自动核对,开启 config 的 figure_ocr 并安装 tesseract;否则请人工抽查图片"
+    }
+  ]
+}

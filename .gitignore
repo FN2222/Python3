@@ -1,9 +1,9 @@
 .venv/
 __pycache__/
 *.pyc
-build/
-notes/
-out/
+/build/
+/notes/
+/out/
 .env
 *.log
 tests/_tmp/

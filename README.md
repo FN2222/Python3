@@ -6,7 +6,8 @@
 
 原始 PDF 全程**只读**,不会被修改或移动。
 
-> 完整方案文档:**[`docs/00-总体方案.md`](docs/00-总体方案.md)**
+> - 完整方案文档:**[`docs/00-总体方案.md`](docs/00-总体方案.md)**
+> - 想先看产出长什么样:**[`examples/notes/IGP/OSPF/ospf-neighbor-adjacency.md`](examples/notes/IGP/OSPF/ospf-neighbor-adjacency.md)**(含动画 GIF 与分步静态图)
 
 ---
 
@@ -148,6 +149,7 @@ python tests/run_e2e.py     # 期望输出:✅ 全部自测通过
 | `templates/note.md.j2` | 笔记排版模板(想改样式改这里) |
 | `glossary/terms.csv` | 术语中英对照,可自行扩充 |
 | `config/pipeline.example.json` | 全部配置项与默认值 |
+| `examples/` | 用合成 PDF 跑出来的真实产出(笔记 + 动画 + 任务包 + 门禁报告) |
 | `tests/` | 合成 PDF 生成器 + 端到端自测 |
 
 ---

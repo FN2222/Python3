@@ -1,0 +1,177 @@
+{
+  "pdf_id": "ospf-neighbor-adjacency-69619352",
+  "title": "OSPF Neighbor Adjacency",
+  "source_rel_path": "IGP/OSPF/OSPF Neighbor Adjacency.pdf",
+  "course_path": [
+    "IGP",
+    "OSPF"
+  ],
+  "pages_total": 4,
+  "content_pages": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "figures": [
+    {
+      "figure_id": "fig-p001-1",
+      "file": "fig-p001-1.png",
+      "page": 1,
+      "kind": "raster",
+      "caption_guess": "Figure: Introduction to OSPF Neighbor Adjacency diagram",
+      "heading_above": "Two routers become neighbors only when the hello interval, the dead interval,"
+    },
+    {
+      "figure_id": "fig-p003-1",
+      "file": "fig-p003-1.png",
+      "page": 3,
+      "kind": "raster",
+      "caption_guess": "Figure: Designated Router Election diagram",
+      "heading_above": "Designated Router Election"
+    }
+  ],
+  "sections_detected": [
+    {
+      "level": 1,
+      "title": "Introduction to OSPF Neighbor Adjacency",
+      "page": 1,
+      "source": "font"
+    },
+    {
+      "level": 1,
+      "title": "Neighbor States",
+      "page": 2,
+      "source": "font"
+    },
+    {
+      "level": 1,
+      "title": "Designated Router Election",
+      "page": 3,
+      "source": "font"
+    },
+    {
+      "level": 1,
+      "title": "Verification",
+      "page": 4,
+      "source": "font"
+    }
+  ],
+  "codeblock_count": 1,
+  "glossary_hits": [
+    {
+      "en": "Adjacency",
+      "zh": "邻接关系",
+      "category": "routing",
+      "matched": "Adjacency",
+      "first_page": 1
+    },
+    {
+      "en": "Hello Packet",
+      "zh": "Hello 报文",
+      "category": "routing",
+      "matched": "Hello Packet",
+      "first_page": 1
+    },
+    {
+      "en": "Multicast",
+      "zh": "组播",
+      "category": "multicast",
+      "matched": "Multicast",
+      "first_page": 1
+    },
+    {
+      "en": "Neighbor",
+      "zh": "邻居",
+      "category": "routing",
+      "matched": "Neighbor",
+      "first_page": 1
+    },
+    {
+      "en": "OSPF",
+      "zh": "开放最短路径优先",
+      "category": "ospf",
+      "matched": "OSPF",
+      "first_page": 1
+    },
+    {
+      "en": "Packet",
+      "zh": "报文",
+      "category": "general",
+      "matched": "Packet",
+      "first_page": 1
+    },
+    {
+      "en": "Subnet",
+      "zh": "子网",
+      "category": "ip",
+      "matched": "Subnet",
+      "first_page": 1
+    },
+    {
+      "en": "Subnet Mask",
+      "zh": "子网掩码",
+      "category": "ip",
+      "matched": "Subnet Mask",
+      "first_page": 1
+    },
+    {
+      "en": "Router ID",
+      "zh": "路由器 ID",
+      "category": "routing",
+      "matched": "Router ID",
+      "first_page": 2
+    },
+    {
+      "en": "Backup Designated Router",
+      "zh": "备份指定路由器",
+      "category": "ospf",
+      "matched": "Backup Designated Router",
+      "first_page": 3
+    },
+    {
+      "en": "Designated Router",
+      "zh": "指定路由器",
+      "category": "ospf",
+      "matched": "Designated Router",
+      "first_page": 3
+    },
+    {
+      "en": "Interface",
+      "zh": "接口",
+      "category": "general",
+      "matched": "Interface",
+      "first_page": 4
+    }
+  ],
+  "output_path": "build/tasks/ospf-neighbor-adjacency-69619352/OUTPUT/note.json",
+  "note_output_markdown": "../../examples/notes/IGP/OSPF/ospf-neighbor-adjacency.md",
+  "gates": {
+    "quote_match_threshold": 90,
+    "visual_quote_threshold": 88,
+    "coverage_min_ratio": 0.8,
+    "min_questions": 8,
+    "max_questions": 20,
+    "required_question_types": [
+      "concept",
+      "process"
+    ],
+    "min_figure_references": 1,
+    "forbidden_phrases": [
+      "据说",
+      "笔者认为",
+      "我认为",
+      "个人觉得",
+      "可能是因为",
+      "推测",
+      "一般业界",
+      "众所周知",
+      "扩展阅读",
+      "题外话",
+      "顺便一提",
+      "在真实生产环境中通常",
+      "补充一个课外",
+      "超出本章"
+    ]
+  }
+}
