@@ -1,0 +1,9 @@
+# NetworkLessons PDF -> 中文笔记 流水线依赖
+# 安装: pip install -r requirements.txt
+
+pymupdf>=1.24        # PDF 分页文本 / 内嵌图片 / 矢量图区域渲染
+Pillow>=10.0         # 自制动画 GIF + 分步静态图 + 图片后处理
+Jinja2>=3.1          # Markdown 模板渲染
+rapidfuzz>=3.0       # 原文引用比对(反臆想门禁核心)
+jsonschema>=4.0      # note.json 结构校验
+requests>=2.31       # 调用 Gemini / OpenAI 图像生成 API(可选功能)
