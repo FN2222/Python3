@@ -116,6 +116,18 @@ display ipv6 neighbors all count
 display ipv6 neighbors entry-limit
 display ipv6 neighbors statistics all
 display mac-address interface GigabitEthernet 1/0/24
+display ipv6 nd nud-params
+display current-configuration | include reachable
+```
+
+`Aging` = 上次 REACH 以来的秒数，不是「剩余寿命」。ping 成功也不会把它清零。
+
+对照 GUA / FE80：
+
+```text
+ping ipv6 -c 100 -m 200 2404:d6c0:3:2602:1:0:1:5
+ping ipv6 -c 100 -m 200 -i GigabitEthernet 1/0/22 FE80::325F:77FF:FE69:3D44
+display ipv6 neighbors interface GigabitEthernet 1/0/22 verbose
 ```
 
 刷新：

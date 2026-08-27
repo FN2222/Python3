@@ -6,6 +6,7 @@
 | 丢包形态 | 优先判断 | 是不是故障 |
 | --- | --- | --- |
 | 只丢第 1 个包，马上再 ping 全通 | ND 邻居解析首包被丢 | 否，IPv6 正常机制 |
+| 能 ping 通，GUA 邻居一直 STALE，同 MAC 的 FE80 是 REACH | Echo 不刷新 NUD；STALE 仍可转发 | 否 |
 | 扫很多个陌生 IPv6，每个地址大约丢 1 个 | 每个新邻居都要做一次 ND | 否 |
 | 连续 ping 对端本机 IPv6，随机/规律丢几个；过交换机的业务不丢 | 控制平面 ICMP 低优先级 + CPU 防护限速 | 多数情况下否 |
 | 接口 CRC / error / 光功率持续异常，v4/v6 都丢 | 物理层 | 是 |
@@ -90,9 +91,12 @@ display ipv6 neighbors interface GigabitEthernet 1/0/24 verbose
 | 状态 | 含义 |
 | --- | --- |
 | REACH | 正常可达 |
-| STALE | 老化未确认，下一包会探测，一般仍能转发 |
+| STALE | 上次确认可达已经超过 ReachableTime。**MAC 仍有效，照样转发**。不是邻居挂了 |
 | DELAY / PROBE | 正在做 NUD |
 | INCMP | 解析没完成。持续 INCMP 才是故障 |
+
+H3C 官方对 `Aging` 的定义：动态表项显示 **上次可达以来经过的时间（秒）**。  
+所以 GUA `State: STALE` 且 `Aging: 8705` 的意思是：这条全球单播邻居 **大约 2.4 小时没被确认过 REACH**，但表项还在，MAC 还能用。
 
 处理：
 
@@ -104,6 +108,59 @@ display ipv6 neighbors interface GigabitEthernet 1/0/24 verbose
 system-view
 ipv6 neighbor 2001:db8:12::2 001e-xxxx-xxxx GigabitEthernet 1/0/24
 ```
+
+### 现场案例：能 ping 通、中间丢 1 个、GUA 一直 STALE
+
+设备 `JiangSuHaiShang_DF_HJ_SW01_HSFDC001`，`GE1/0/22` VLAN 10：
+
+```text
+ping ipv6 2404:d6c0:3:2602:1:0:1:5
+# 5 包：seq 0/1/2/4 通（RTT 约 4.0～4.7 ms），seq 3 Request time out，20% loss
+# 源  ...:1:0:1:1   目的  ...:1:0:1:5
+
+display ipv6 neighbors interface g1/0/22 verbose
+# 2404:d6c0:3:2602:1:0:1:5     MAC 305f-7769-3d44  STALE  Aging 8705s
+# FE80::325F:77FF:FE69:3D44     MAC 305f-7769-3d44  REACH  Aging 1069s
+```
+
+这三件事可以同时成立，而且 **STALE 不是丢包原因**。
+
+1. **STALE ≠ 不通。**  
+   RFC 4861 / H3C 都规定：STALE 只是「暂时不确定还可达」，**继续用缓存 MAC 发包**。你已经 ping 通 4/5，说明二层地址是对的。真正不通的是 INCMP（解析失败）或表项消失。
+
+2. **ICMP Echo Reply 不会把邻居打成 REACH。**  
+   NUD 只认两类「可达确认」：
+   - 对端回的 **solicited NA**（你先发了 NS）
+   - TCP 这类上层「正向进展」提示（ACK）
+   ping 的 Echo Reply **不算**。所以 GUA 表项的 `Aging` 不会因为 ping 成功而归零，会一直停在 STALE。截图里 8705 秒就是铁证：刚 ping 通了，上次 REACH 仍是两个多小时前。
+
+3. **同一台设备的 GUA 和 FE80 是两条 ND 表项。**  
+   MAC 相同不代表状态会一起刷新。FE80 常被 ND 自身、RA/RS、OSPFv3 hello 反复确认，所以是 REACH；GUA 只有你去 ping 它，而 ping 又不刷新 NUD，所以一直 STALE。这是正常现象，不是表坏了。
+
+4. **这次丢的不是「ND 首包」。**  
+   首包 seq=0 已经通了，挂的是中间的 seq=3，RTT 稳定在 4ms。这是 **ping 对端本机地址、ICMP 上 CPU** 的典型样子（见下一节），5 包里丢 1 个统计上也会显示成 20%。不要按 20% 去判断链路误码。
+
+建议接着做（用来证明，不是为了把 STALE 改成 REACH）：
+
+```text
+# 1) 加大样本，看真实丢包率，别用 5 包
+ping ipv6 -c 100 -m 200 2404:d6c0:3:2602:1:0:1:5
+
+# 2) ping 同一台设备的链路本地，对照丢包率
+ping ipv6 -c 100 -m 200 -i GigabitEthernet 1/0/22 FE80::325F:77FF:FE69:3D44
+
+# 3) 想看到 GUA 变成 REACH：清空后再 ping，立刻 display（大约 30 秒内会回到 STALE）
+reset ipv6 neighbors interface GigabitEthernet 1/0/22
+ping ipv6 -c 5 2404:d6c0:3:2602:1:0:1:5
+display ipv6 neighbors interface GigabitEthernet 1/0/22 verbose
+
+# 4) 穿透业务：ping 对端下面主机的 IPv6。业务不丢就不要换模块
+display interface GigabitEthernet 1/0/22
+display cpu-defend statistics
+display ipv6 icmp statistics
+```
+
+不要为了「表项好看」去改 `ipv6 nd reachable-time` 或关 CPU 防护。STALE 长期存在、MAC 不变、业务通，就让它 STALE。
 
 ---
 
