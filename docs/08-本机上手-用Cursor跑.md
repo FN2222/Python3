@@ -124,6 +124,46 @@ git checkout cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b
 
 > 仓库放哪都行,不必和 `D:\NetworkLessons` 在一起 —— 课程目录是通过配置指定的。
 
+### 1.1.5 以后怎么更新代码
+
+先判断你当初是怎么拿到代码的:
+
+```powershell
+cd D:\Python3
+git status
+```
+
+**能正常输出分支信息** → 有 git,一条命令搞定:
+
+```powershell
+git pull
+```
+
+**报 `not a git repository`** → 你当初是下 ZIP 的,重新下一次并**覆盖解压**到 `D:\Python3`。
+
+覆盖时会发生什么(不用你手动挑文件):
+
+| 会被覆盖 | 不会被动到 |
+| --- | --- |
+| `nlnotes\`(代码)、`docs\`、`prompts\`、`schemas\`、`templates\`、`glossary\`、`scripts\`、`tests\`、`examples\` | `config\pipeline.json`(**你的配置**) |
+| `README.md`、`AGENTS.md`、`requirements.txt`、`.cursor\` | `build\`(已抽取的原文与图片) |
+| `config\pipeline.example.json`(只是示例模板) | `notes\`(已生成的笔记)、`.venv\`(虚拟环境) |
+
+右侧那几项**不在仓库里**(被 `.gitignore` 排除),所以 ZIP 包里根本没有它们
+—— 你的配置和虚拟环境都不会丢,也不用重装依赖。
+
+> 唯一要留意:ZIP 解压出来的顶层文件夹名很长
+> (`Python3-cursor-networklessons-...`),要把**它里面的内容**覆盖进 `D:\Python3`,
+> 而不是把整个文件夹丢进去变成 `D:\Python3\Python3-cursor-...`。
+
+**更新完如果改动涉及抽取阶段**(比如噪声清理、图片参数),必须加 `--force` 重跑,
+否则会直接复用旧的抽取结果:
+
+```powershell
+.\.venv\Scripts\python.exe -m nlnotes extract --path OSPF --limit 3 --force
+.\.venv\Scripts\python.exe -m nlnotes tasks --path OSPF --limit 3 --force
+```
+
 ### 1.2 Python 与依赖
 
 需要 Python 3.10 以上。没装的话去 python.org 装,**记得勾选 Add to PATH**。
