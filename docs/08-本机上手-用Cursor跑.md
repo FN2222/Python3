@@ -66,6 +66,50 @@ git checkout cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b
 > 写成 `cd D:` 而不是 `cd D:\` 是故意的 —— 前者在 PowerShell 里同样能切到 D 盘,
 > 而且万一粘错到 bash 里也不会吞掉下一行命令。
 
+#### 克隆失败怎么办(公司电脑常见)
+
+如果报下面这个错:
+
+```
+fatal: unable to access 'https://github.com/...': schannel: SEC_E_UNTRUSTED_ROOT
+(0x80090325) - 证书链是由不受信任的颁发机构颁发的
+```
+
+这是**公司网络做 HTTPS 审查**导致的:中间设备把证书换成了公司自签证书,
+Git 的 schannel 后端做吊销检查时取不到 CRL,于是报成"根不受信任"。
+
+**第一步,先试这一行**(只关掉吊销检查,证书本身照常校验,90% 的情况能解决):
+
+```powershell
+git config --global http.schannelCheckRevoke false
+git clone https://github.com/FN2222/Python3.git
+```
+
+顺手修一下 PowerShell 的控制台乱码,以后报错能看清中文:
+
+```powershell
+chcp 65001
+```
+
+**第二步,还不行就直接下 ZIP —— 跑这套工具链根本不需要 git。**
+仓库是公开的,浏览器能直接下载:
+
+```
+https://github.com/FN2222/Python3/archive/refs/heads/cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip
+```
+
+解压后的文件夹名会是 `Python3-cursor-networklessons-pdf-to-chinese-notes-pipeline-ec2b`,
+**把它重命名为 `Python3`**(得到 `D:\Python3`),后面步骤完全一样。
+代价是以后没法 `git pull` 更新,需要重新下 ZIP。
+
+**第三步(可选),彻底修好 git**:从 `certmgr.msc` →「受信任的根证书颁发机构」
+导出公司那张 CA 证书,追加到 Git 的 `ca-bundle.crt`
+(位置一般是 `C:\Program Files\Git\mingw64\etc\ssl\certs\ca-bundle.crt`),
+或者把它导入到 Git 使用的证书存储里。
+
+> **不要**用 `git config --global http.sslVerify false` 全局关掉证书校验 ——
+> 那等于放弃 HTTPS 的身份验证,在公司网络里风险更大。
+
 **如果本机已经有了:**
 
 ```powershell
@@ -368,6 +412,8 @@ Grok 4.6 能读图,但如果不明确要求,它可能只读 `figures.md` 的文�
 | 现象 | 先看这里 |
 | --- | --- |
 | `bash: cd: too many arguments` / `cd: Python3: No such file or directory` | **跑错终端了** —— 你在云端 agent 的 bash 里,不是本机 PowerShell。见本文开头的警告 |
+| `schannel: SEC_E_UNTRUSTED_ROOT` 克隆失败 | 公司网络 HTTPS 审查;先试 `git config --global http.schannelCheckRevoke false`,不行就下 ZIP。见第 1.1 节 |
+| PowerShell 里中文报错是乱码 | 先执行 `chcp 65001` |
 | 命令报 `课程根目录不存在` | `config\pipeline.json` 的 `source_root` 是不是写了单反斜杠 |
 | 扫描到 0 个 PDF | 路径对不对;文件是不是真的 `.pdf` |
 | 大量 PDF 被 audit 剔除 | `build\audit.md` 的原因列;多半是扫描件,需要先 OCR |
