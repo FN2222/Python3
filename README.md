@@ -180,3 +180,7 @@ python tests/run_e2e.py     # 期望输出:✅ 全部自测通过
 | [`docs/03-AI执行手册.md`](docs/03-AI执行手册.md) | AI 逐步操作、各类工具接法、批量调度 |
 | [`docs/04-验收与自测.md`](docs/04-验收与自测.md) | 门禁完整清单、自测、人工抽检 |
 | [`docs/05-常见问题.md`](docs/05-常见问题.md) | 抽不到图、中文方块、覆盖度过不了等 |
+| [`docs/06-会话交接.md`](docs/06-会话交接.md) | 历史决策、踩过的坑、当前进度、如何在新会话继承上下文 |
+
+给 AI 看的入口:[`AGENTS.md`](AGENTS.md)(本地 Agent 与 Cloud Agent 都会自动读取)
+与 [`.cursor/rules/nlnotes.mdc`](.cursor/rules/nlnotes.mdc)(`alwaysApply`,注入每个新会话)。
