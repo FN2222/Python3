@@ -247,11 +247,32 @@ def format_feedback(report: dict[str, Any], max_items: int = 30) -> str:
     extra = len(report.get("errors", [])) - max_items
     if extra > 0:
         lines.append(f"...(还有 {extra} 条同类错误,请一并修正)")
-    lines += ["", "注意:不要删减内容来规避错误(会触发覆盖度不足);",
+    lines += ["",
+              "只修正上面列出的字段,其他已经写对的内容必须原样保留。",
+              "不要为了修 1 条错而重写整份 JSON(那样常会从 1 条错变成 9 条)。",
+              "不要删减内容来规避错误(会触发覆盖度不足);",
               "不要改动门禁配置;重新输出**完整**的 note.json。",
               "引用必须同页连续,不要跨页或拼接不相邻的命令行;",
               "不要自行发明缩写或换算掩码;points[].kind 不要填 process。"]
     return "\n".join(lines)
+
+
+def log_round_errors(rep: Any, report_hint: str) -> None:
+    """把本轮门禁错误码打到终端,避免只看到「N 个错误」却不知道卡在哪。"""
+    errors = getattr(rep, "errors", None) or []
+    counts: dict[str, int] = {}
+    for e in errors:
+        counts[e.get("code") or "?"] = counts.get(e.get("code") or "?", 0) + 1
+    summary = " ".join(f"{k}×{v}" for k, v in sorted(counts.items()))
+    log(f"  本轮未过: {summary or '未知错误'}", "warn")
+    for e in errors[:4]:
+        msg = str(e.get("message") or "").replace("\n", " ")
+        if len(msg) > 120:
+            msg = msg[:120] + "…"
+        log(f"    [{e.get('code')}] {e.get('where')}: {msg}", "warn")
+    extra = len(errors) - 4
+    if extra > 0:
+        log(f"    …另有 {extra} 条,完整列表见 {report_hint}", "warn")
 
 
 def write_chapter(cfg: Config, item: dict[str, Any], dry_run: bool = False,
@@ -307,6 +328,7 @@ def write_chapter(cfg: Config, item: dict[str, Any], dry_run: bool = False,
         if rep.passed:
             stat["passed"] = True
             break
+        log_round_errors(rep, f"build/reports/{pdf_id}.json")
         feedback = format_feedback(rep.to_dict())
 
     stat["cost_usd"] = round(estimate_cost(cfg, stat["prompt_tokens"],
@@ -393,6 +415,7 @@ def write_group(cfg: Config, group: dict[str, Any], dry_run: bool = False,
         if rep.passed:
             stat["passed"] = True
             break
+        log_round_errors(rep, f"build/reports/group-{group['id']}.json")
         feedback = format_feedback(rep.to_dict())
 
     stat["cost_usd"] = round(estimate_cost(cfg, stat["prompt_tokens"],
