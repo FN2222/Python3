@@ -253,7 +253,9 @@ def format_feedback(report: dict[str, Any], max_items: int = 30) -> str:
               "不要删减内容来规避错误(会触发覆盖度不足);",
               "不要改动门禁配置;重新输出**完整**的 note.json。",
               "引用必须同页连续,不要跨页或拼接不相邻的命令行;",
-              "不要自行发明缩写或换算掩码;points[].kind 不要填 process。"]
+              "不要自行发明缩写或换算掩码;",
+              "points[].kind 不要填 process;questions[].type 不要填 command(命令题用 config);",
+              "why_hard_zh/how_to_break_zh 至少 20 字,answer_zh 至少 25 字。"]
     return "\n".join(lines)
 
 

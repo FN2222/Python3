@@ -6,4 +6,4 @@
 3. AI 只负责产出结构化的 note.json;Markdown、图片、动画由确定性代码渲染。
 """
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"

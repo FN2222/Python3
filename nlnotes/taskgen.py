@@ -252,8 +252,9 @@ TASK_MD = """# 制作任务 — {title}
    `q_zh` / `q_en` / `answer_zh` / `answer_en` / `source_pages` / `evidence_quote`。
    - 中英文必须是**同一道题**的两个语言版本,不能是两道不同的题。
    - `answer_en` 应尽量贴合原文表述;`answer_zh` 是它的中文版,至少 25 字。
-   - `must_master[].why_zh` 至少 15 字。
+   - `must_master[].why_zh` 至少 15 字;`difficulties[].why_hard_zh` 与 `how_to_break_zh` 至少 20 字。
    - `type` 至少覆盖 {required_types};建议按 `difficulty` 1→3 递进。
+     **不要把题目 type 填成 `command`**(那是知识点 kind);命令/配置题用 `config`。
    - **题目不得超纲**:凡是本章原文没讲的,不能出题。
 3. `blind_spots_zh`:本章最容易卡住的点(仍须来自原文内容)。
 

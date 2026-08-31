@@ -159,8 +159,22 @@ def _check_schema(note: dict[str, Any], rep: Report) -> bool:
     errs = sorted(validator.iter_errors(note), key=lambda e: list(e.path))
     for e in errs[:40]:
         loc = "/".join(str(x) for x in e.path) or "(根)"
-        rep.err("S001", loc, f"结构不符合 schema: {e.message}",
-                "对照 note.schema.json / note.template.json 修正字段")
+        hint = ""
+        fix = "对照 note.schema.json / note.template.json 修正字段"
+        if e.validator == "minLength":
+            got = len(str(e.instance or ""))
+            hint = f"(至少 {e.validator_value} 字,现在 {got} 字,写成完整句子)"
+            fix = f"把该字段写到至少 {e.validator_value} 字,讲清为什么/怎么做,不要一句口号"
+        elif e.validator == "enum":
+            allowed = " / ".join(str(x) for x in (e.validator_value or []))
+            hint = f"(只能填: {allowed})"
+            if "questions" in loc and str(e.path[-1]) == "type":
+                fix = ("题目 type 只能是 concept/process/compare/config/troubleshoot/calculation;"
+                       "命令/配置类题用 config,不要填 command(command 是知识点 points[].kind)")
+            elif "kind" in loc:
+                fix = ("知识点 kind 只能是 fact/definition/mechanism/step/caveat/example/command;"
+                       "不要填 process(process 是题目 type)")
+        rep.err("S001", loc, f"结构不符合 schema: {e.message}{hint}", fix)
     return not errs
 
 

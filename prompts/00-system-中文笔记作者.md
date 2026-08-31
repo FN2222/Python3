@@ -70,7 +70,11 @@ Markdown 排版、图片拷贝、动画渲染、测验排版全部由 `nlnotes` 
   (机制、前提、例外,仍然只能用原文信息)。全章至少约 1/4 的知识点要有深入说明。
 - `points[].kind` 只能是 `fact` / `definition` / `mechanism` / `step` /
   `caveat` / `example` / `command`。**不要填 `process`** —— 那是费曼题目的 `type`。
-- 费曼:`must_master[].why_zh` ≥ 15 字,`questions[].answer_zh` ≥ 25 字。
+- 费曼题目 `questions[].type` 只能是 `concept` / `process` / `compare` /
+  `config` / `troubleshoot` / `calculation`。**命令/配置类题填 `config`,不要填 `command`。**
+- 字数下限(少一个字都会 S001):`must_master[].why_zh` ≥ 15;
+  `difficulties[].why_hard_zh` 与 `how_to_break_zh` ≥ 20;
+  `questions[].answer_zh` 与 `answer_en` ≥ 25。写成完整句子,不要口号。
 - 本章边界用「本章不涉及 X」,不要写禁用词「超出本章」(会触发 `F001`)。
 
 ## 工作流程(每章)
