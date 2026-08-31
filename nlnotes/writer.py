@@ -102,13 +102,26 @@ def call_llm(cfg: Config, system: str, user: str) -> tuple[str, dict[str, int]]:
     except ImportError as exc:
         raise RuntimeError("缺少 requests 依赖: pip install requests") from exc
 
-    key = os.environ.get(str(cfg["writer_api_key_env"]), "")
+    env_name = str(cfg["writer_api_key_env"])
+    key = os.environ.get(env_name, "").strip().strip('"').strip("'")
     base = str(cfg["writer_base_url"]).rstrip("/") or "https://api.openai.com/v1"
     if not key and "localhost" not in base and "127.0.0.1" not in base:
         raise RuntimeError(
-            f"未设置环境变量 {cfg['writer_api_key_env']}。\n"
-            f"Windows: $env:{cfg['writer_api_key_env']} = \"你的key\"\n"
-            f"Linux/macOS: export {cfg['writer_api_key_env']}=你的key")
+            f"未设置环境变量 {env_name}。\n"
+            f"Windows: $env:{env_name} = \"你的key\"\n"
+            f"Linux/macOS: export {env_name}=你的key")
+    # HTTP 头只能是 ASCII。如果 Key 里有中文(比如误填了占位说明文字),
+    # requests 会抛出难以理解的 'latin-1' codec 错误,所以这里提前拦下并说清楚。
+    if key:
+        try:
+            key.encode("ascii")
+        except UnicodeEncodeError:
+            raise RuntimeError(
+                f"环境变量 {env_name} 里的 API Key 含非 ASCII 字符(比如中文)。\n"
+                f"HTTP 请求头只能是 ASCII,所以这个 Key 发不出去。\n"
+                f"请填真实的 Key;只是想测试网络能不能连通的话,"
+                f"用纯英文占位符,例如:\n"
+                f'  $env:{env_name} = "test-key-1234"') from None
 
     body = {
         "model": cfg["writer_model"],
@@ -133,6 +146,10 @@ def call_llm(cfg: Config, system: str, user: str) -> tuple[str, dict[str, int]]:
                                      timeout=int(cfg["writer_timeout"]))
             if resp.status_code in (429, 500, 502, 503, 504):
                 raise RuntimeError(f"服务暂时不可用 HTTP {resp.status_code}: {resp.text[:200]}")
+            # 4xx(401 Key 无效、403 无权限、404 模型名写错)重试也不会好,直接抛出
+            if 400 <= resp.status_code < 500:
+                raise RuntimeError(
+                    f"HTTP {resp.status_code}: {resp.text[:300]}") from None
             resp.raise_for_status()
             data = resp.json()
             content = data["choices"][0]["message"]["content"]
@@ -143,11 +160,55 @@ def call_llm(cfg: Config, system: str, user: str) -> tuple[str, dict[str, int]]:
             }
         except Exception as exc:
             last_err = exc
+            text = str(exc)
+            fatal = (text.startswith("HTTP 4")
+                     or "latin-1" in text
+                     or "非 ASCII" in text)
+            if fatal:
+                break                      # Key/模型名/编码问题,重试无意义
             wait = 4 * (2 ** attempt)
             if attempt < int(cfg["writer_retry_on_error"]):
                 log(f"调用失败({exc}),{wait}s 后重试", "warn")
                 time.sleep(wait)
     raise RuntimeError(f"调用模型失败: {last_err}")
+
+
+def probe(cfg: Config) -> int:
+    """最小成本地探测"能不能连上模型服务" —— 只发一个几乎不花钱的极短请求。
+
+    公司网络常拦命令行 HTTPS,直接跑 write 会在跑到一半才发现连不上,
+    所以先用这个确认一次。
+    """
+    base = str(cfg["writer_base_url"]).rstrip("/")
+    print(f"服务地址: {base}")
+    print(f"模型    : {cfg['writer_model']}")
+    print(f"Key 环境变量: {cfg['writer_api_key_env']}"
+          f"{'(已设置)' if os.environ.get(str(cfg['writer_api_key_env'])) else '(未设置)'}")
+    print()
+    try:
+        content, usage = call_llm(cfg, "You are a test.", "Reply with the single word: ok")
+    except RuntimeError as exc:
+        text = str(exc)
+        print(f"❌ 连不通:{text}")
+        print()
+        low = text.lower()
+        if any(k in low for k in ("certificate", "ssl", "tls", "untrusted", "证书")):
+            print("看起来是**公司网络的 TLS 拦截**(和 git / 浏览器下载遇到的是同一类问题)。")
+            print("这条路走不通,请改用 Cursor 会话批量写:")
+            print("  见 prompts/60-批量流水作业.md")
+        elif "401" in low or "invalid" in low or "unauthorized" in low:
+            print("网络是通的,但 Key 无效 —— 换成真实的 API Key 即可。")
+        elif "latin-1" in low or "ascii" in low:
+            print("Key 里有非 ASCII 字符(比如中文占位文字),换成纯英文的真实 Key。")
+        else:
+            print("如果是超时/连接被拒,通常也是公司网络拦截;可以试试配置代理:")
+            print('  $env:HTTPS_PROXY = "http://代理地址:端口"')
+        return 1
+    print(f"✅ 连通正常。模型回复:{str(content)[:60]}")
+    print(f"   本次用量:输入 {usage['prompt_tokens']} + 输出 {usage['completion_tokens']} token")
+    print()
+    print("可以用 nlnotes write 全自动撰写了。建议先 --dry-run 估一下成本。")
+    return 0
 
 
 # ------------------------------------------------------------------ 章节笔记

@@ -457,8 +457,10 @@ def cmd_build_group(args) -> int:
 def cmd_write(args) -> int:
     import time as _time
     from nlnotes.scan import select_items
-    from nlnotes.writer import append_log, summarize, write_chapter
+    from nlnotes.writer import append_log, probe, summarize, write_chapter
     cfg = _cfg(args)
+    if args.probe:
+        return probe(cfg)
     items = select_items(cfg, args.ids, args.filter_path, args.limit)
     if not items:
         print("没有待处理的章节。")
@@ -800,6 +802,8 @@ def build_parser() -> argparse.ArgumentParser:
     _select(sp)
     sp.add_argument("--force", action="store_true", help="已通过校验的章节也重新撰写")
     sp.add_argument("--dry-run", action="store_true", help="只估算 token 与费用,不发请求")
+    sp.add_argument("--probe", action="store_true",
+                    help="只探测能不能连上模型服务(发一个极短请求),不写笔记")
     sp.set_defaults(func=cmd_write)
 
     sp = sub.add_parser("write-group", help="调 LLM 自动撰写协议级 interview.json")
