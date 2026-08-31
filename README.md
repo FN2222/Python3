@@ -6,8 +6,9 @@
 
 原始 PDF 全程**只读**,不会被修改或移动。
 
+> - **想直接在本机开始跑(用 Cursor / Grok):[`docs/08-本机上手-用Cursor跑.md`](docs/08-本机上手-用Cursor跑.md)** ← 含可直接复制的提示词
 > - 完整方案文档:**[`docs/00-总体方案.md`](docs/00-总体方案.md)**
-> - 想先看产出长什么样:**[`examples/notes/IGP/OSPF/ospf-neighbor-adjacency.md`](examples/notes/IGP/OSPF/ospf-neighbor-adjacency.md)**(含动画 GIF 与分步静态图)
+> - 想先看产出长什么样:**[`examples/notes/IGP/OSPF/ospf-neighbor-adjacency.md`](examples/notes/IGP/OSPF/ospf-neighbor-adjacency.md)**(章节笔记)与 **[`00-面试复习-OSPF.md`](examples/notes/IGP/OSPF/00-面试复习-OSPF.md)**(面试复习笔记)
 
 ---
 
@@ -192,6 +193,7 @@ python tests/run_e2e.py     # 期望输出:✅ 全部自测通过
 | --- | --- |
 | `init` / `doctor` | 生成配置 / 环境体检 |
 | `audit` | **PDF 体检**:扫描件 / 加密 / 乱码自动剔除,并给出处理办法 |
+| `diag` | 把调参需要的信息打包成一个文件(`build/diagnosis.md`),方便求助时分享 |
 | `prepare` | `scan` + `extract` + `tasks` 一条龙 |
 | `write` | **调模型自动撰写章节笔记**(写→校验→回灌→重写);`--dry-run` 估成本 |
 | `build` | 校验 + 渲染 + 组装(**日常用这个**) |
@@ -250,6 +252,7 @@ python tests/run_e2e.py     # 期望输出:✅ 全部自测通过
 | [`docs/04-验收与自测.md`](docs/04-验收与自测.md) | 门禁完整清单、自测、人工抽检 |
 | [`docs/05-常见问题.md`](docs/05-常见问题.md) | 抽不到图、中文方块、覆盖度过不了等 |
 | [`docs/07-批量自动化与成本.md`](docs/07-批量自动化与成本.md) | **哪些免费、哪些花钱、怎么全自动跑完、怎么省钱** |
+| [`docs/08-本机上手-用Cursor跑.md`](docs/08-本机上手-用Cursor跑.md) | **在本机用 Cursor(Grok)跑:装环境、可复制的提示词、注意点** |
 | [`docs/06-会话交接.md`](docs/06-会话交接.md) | 历史决策、踩过的坑、当前进度、如何在新会话继承上下文 |
 
 给 AI 看的入口:[`AGENTS.md`](AGENTS.md)(本地 Agent 与 Cloud Agent 都会自动读取)

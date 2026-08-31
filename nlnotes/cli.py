@@ -231,6 +231,16 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_diag(args) -> int:
+    from nlnotes.diag import diagnose
+    cfg = _cfg(args)
+    out = diagnose(cfg, sample=args.sample)
+    print(f"\n请把这个文件的内容发给协助调参的人:\n  {out}\n")
+    print("它包含:环境与依赖、课程目录概况、PDF 体检汇总、抽取质量统计,")
+    print("以及抽样几个 PDF 的图片清单 / 标题层级 / 原文文本样例。")
+    return 0
+
+
 def cmd_audit(args) -> int:
     from nlnotes.audit import audit
     from nlnotes.scan import select_items
@@ -494,6 +504,11 @@ def build_parser() -> argparse.ArgumentParser:
     _common(sp)
     _select(sp)
     sp.set_defaults(func=cmd_audit)
+
+    sp = sub.add_parser("diag", help="把调参需要的信息打包成一个文件(build/diagnosis.md)")
+    _common(sp)
+    sp.add_argument("--sample", type=int, default=3, help="抽样展示几个 PDF 的细节")
+    sp.set_defaults(func=cmd_diag)
 
     sp = sub.add_parser("groups", help="按协议分组,生成面试复习任务包")
     _common(sp)

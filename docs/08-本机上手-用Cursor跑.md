@@ -1,0 +1,359 @@
+# 本机上手:用 Cursor(Grok 4.6)跑这套工具链
+
+> 目标:在你自己的 Windows 机器上跑通,并且**让 Cursor 里的 Grok 4.6 充当撰写者**,
+> 不需要任何 API Key。全文的命令和提示词都可以直接复制。
+
+---
+
+## 0. 先搞清楚谁花什么
+
+| 环节 | 谁在干 | 花什么 |
+| --- | --- | --- |
+| 扫描 / 体检 / 抽取 / 生成任务包 / 门禁校验 / 渲染动画 / 出 Markdown | 本机 Python | **免费** |
+| 撰写 `note.json`、`interview.json` | **Grok 4.6(在 Cursor 里)** | **Cursor 的请求额度** |
+
+也就是说:**用 Cursor 跑不需要充值任何 API**,消耗的是你已有的 Cursor 订阅额度。
+每写一章大约消耗几次请求(1 次撰写 + 0~3 次按门禁报告修订)。
+
+> 另一条路是 `nlnotes write` 直接调 API(见 [`07-批量自动化与成本.md`](07-批量自动化与成本.md))。
+> 两者**质量下限完全一样**,因为把关的是本地门禁,不是模型。
+> 差别只在:Cursor 方便、按请求数计;API 便宜、可以完全无人值守跑一整晚。
+> 建议:**先用 Cursor 跑几章确认效果**,量大了再考虑切 API。
+
+---
+
+## 1. 一次性准备(约 10 分钟)
+
+### 1.1 把仓库弄到本机
+
+在 Cursor 里打开一个终端(`Ctrl` + `` ` ``),二选一:
+
+**如果你本机还没有这个仓库:**
+
+```powershell
+cd D:\
+git clone https://github.com/FN2222/Python3.git
+cd Python3
+git checkout cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b
+```
+
+**如果本机已经有了:**
+
+```powershell
+cd <你的仓库目录>
+git fetch origin cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b
+git checkout cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b
+```
+
+然后用 Cursor 打开这个目录(`File` → `Open Folder`)。
+仓库里有 `AGENTS.md` 和 `.cursor/rules/`,**Cursor 会自动读取**,
+所以 Grok 一上来就知道这个项目的规则,不需要你解释。
+
+> 仓库放哪都行,不必和 `D:\NetworkLessons` 在一起 —— 课程目录是通过配置指定的。
+
+### 1.2 Python 与依赖
+
+需要 Python 3.10 以上。没装的话去 python.org 装,**记得勾选 Add to PATH**。
+
+```powershell
+python --version                      # 确认 3.10+
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+> **为什么用 `.\.venv\Scripts\python.exe` 而不是先 `Activate.ps1`?**
+> Windows 默认的 PowerShell 执行策略常常会拦掉 `Activate.ps1`,
+> 直接调 `python.exe` 可以绕过这个问题,少一个坑。
+> 下文所有命令都用这种写法,你也可以让 Grok 一律这么写。
+
+### 1.3 生成并修改配置
+
+```powershell
+.\.venv\Scripts\python.exe -m nlnotes init
+```
+
+然后打开 `config\pipeline.json`,至少改这几项:
+
+```json
+{
+  "source_root": "D:/NetworkLessons/All-Courses-v3.0",
+  "font_path": "C:/Windows/Fonts/msyh.ttc",
+  "figure_ocr": true
+}
+```
+
+三点说明:
+
+- **`source_root` 必须用正斜杠 `/` 或双反斜杠 `\\`** —— JSON 里单反斜杠是转义符,会报错。
+- `font_path` 是自制动画里中文的字体。没有微软雅黑就用 `C:/Windows/Fonts/simhei.ttf`。
+- **`figure_ocr` 建议开** —— 拓扑图里的 `R1`、`Gi0/1`、`10.0.0.0/24` 只存在于图片像素里,
+  不在 PDF 文本层。开了 OCR 之后这些文字会出现在任务包里,Grok 不必"看图"也能正确引用。
+  需要额外装:
+
+  ```powershell
+  .\.venv\Scripts\python.exe -m pip install pytesseract
+  winget install UB-Mannheim.TesseractOCR
+  ```
+
+  装不上也没关系,把 `figure_ocr` 改回 `false`,让 Grok 直接看图片文件即可
+  (Grok 4.6 支持读图),只是要在提示词里明确要求它打开图片看。
+
+### 1.4 体检
+
+```powershell
+.\.venv\Scripts\python.exe -m nlnotes doctor
+```
+
+期望看到课程根目录 ✅ 存在、依赖全部 ✅、中文字体有路径。
+`mmdc` / `dot` 显示 ➖ 是正常的(缺失会自动降级成内联代码块,不影响出笔记)。
+
+---
+
+## 2. 第一步:让 Grok 跑体检与准备,并生成诊断报告
+
+**在 Cursor 的 Agent 面板选 Grok 4.6,把下面这段整段粘进去:**
+
+```
+请在本机跑通 nlnotes 的准备阶段,然后生成诊断报告。
+
+环境约定:
+- 一律用 .\.venv\Scripts\python.exe 调用 Python,不要用 Activate.ps1(会被执行策略拦)
+- 课程目录在 config/pipeline.json 的 source_root,不要改动课程目录里的任何文件
+
+请按顺序执行,每步跑完把关键输出贴给我:
+
+1. .\.venv\Scripts\python.exe -m nlnotes doctor
+2. .\.venv\Scripts\python.exe -m nlnotes scan
+3. .\.venv\Scripts\python.exe -m nlnotes audit
+4. .\.venv\Scripts\python.exe -m nlnotes prepare --path OSPF --limit 3
+5. .\.venv\Scripts\python.exe -m nlnotes diag
+
+如果某一步报错,先读报错信息自己判断能不能修(比如缺依赖就装),
+修不了就停下来告诉我具体的报错。
+
+最后请做两件事:
+- 把 build/diagnosis.md 的完整内容贴出来
+- 用你自己的话总结:课程一共多少个 PDF、体检剔除了几个、
+  抽取出的图片数量看起来是否合理、原文文本层有没有乱码
+```
+
+跑完之后你会得到 `build\diagnosis.md`。**把这个文件的内容发我**,
+我据此判断抽取参数要不要调(比如图抽多了/抽少了、矢量图没识别出来)。
+
+这份报告只有统计和少量样本,不含课程正文大段内容,可以放心分享。
+
+### 这一步大概会看到什么
+
+- `audit` 可能会剔除一些 PDF。**被剔除不代表文件坏了**,最常见的原因是扫描件
+  (整页是图片、没有文本层)。报告里会写清原因和处理办法。
+- `prepare --path OSPF --limit 3` 只处理 OSPF 相关的前 3 个,故意小范围,
+  就是为了先看效果、别一上来跑几百个。
+
+---
+
+## 3. 第二步:让 Grok 写第一章笔记
+
+**先看该写哪一章:**
+
+```powershell
+.\.venv\Scripts\python.exe -m nlnotes next --count 3
+```
+
+它会打出 `pdf_id` 和任务包路径。然后**把下面这段粘给 Grok**
+(把 `<PDF_ID>` 换成上一步打出来的那个 id):
+
+```
+请按任务包的要求,为这一章产出中文笔记。
+
+pdf_id: <PDF_ID>
+
+必读(按顺序):
+1. prompts/00-system-中文笔记作者.md   ← 这是你必须遵守的铁律
+2. build/tasks/<PDF_ID>/TASK.md         ← 本章的具体要求与阈值,以它为准
+3. build/tasks/<PDF_ID>/source-text.md  ← 原文全文,页码标记为 [[p.N]]
+4. build/tasks/<PDF_ID>/outline.md
+5. build/tasks/<PDF_ID>/figures.md      ← 可用图清单
+6. build/tasks/<PDF_ID>/glossary.md     ← 术语统一译名
+7. build/tasks/<PDF_ID>/codeblocks.md
+8. build/tasks/<PDF_ID>/note.schema.json 与 note.template.json
+
+几条必须做到的:
+- 每条知识点的 text_en_quote 必须从 source-text.md 里**复制粘贴**,不要凭理解写
+- figures.md 里的每张图都要打开图片文件实际看一遍,把图上读到的文字
+  逐字登记到 figures[].labels_seen(拓扑图里的文字不在 PDF 文本层,
+  不登记就会被门禁判为臆想)
+- 笔记要详尽:多用 points[].detail_zh 把机制、前提、例外讲透,
+  不要写一层标题式的空洞概括(有知识点密度门禁会拦)
+- 费曼部分要写全:大白话复述、必须掌握清单、难点分析、自测题
+- 不要写任何原文没有的协议、命令、数值、IP
+
+产出:build/tasks/<PDF_ID>/OUTPUT/note.json
+
+写完后运行:
+  .\.venv\Scripts\python.exe -m nlnotes build --id <PDF_ID>
+
+如果不通过,读 build/reports/<PDF_ID>.json 的 errors,
+按 prompts/40-修订循环.md 的错误码对照表逐条修 note.json,然后重跑。
+最多修 5 轮;5 轮还过不了就停下来把剩余错误告诉我。
+
+**不要修改门禁配置、不要下调阈值、不要删内容来规避错误。**
+```
+
+通过之后,笔记在 `notes\<方向>\<协议>\<课程名>.md`。
+用 Typora 或 Obsidian 打开看效果(GIF 动画会自动播放)。
+
+---
+
+## 4. 第三步:确认风格后批量推进
+
+### 4.1 一次让 Grok 做一批
+
+Cursor 里一次做 3~5 章比较合适(太多会因为上下文太长而降低质量)。
+提示词模板:
+
+```
+请依次为下面这几章产出笔记,一章一章来,每章都要跑到门禁通过再进入下一章:
+
+<PDF_ID_1>
+<PDF_ID_2>
+<PDF_ID_3>
+
+规则同上:遵守 prompts/00-system-中文笔记作者.md,
+读各自的 build/tasks/<id>/TASK.md,图要打开看并登记 labels_seen,
+写完跑 .\.venv\Scripts\python.exe -m nlnotes build --id <id>,
+按报告修到通过。
+
+全部做完后,汇总告诉我:每章用了几轮、有没有反复出现的同类错误。
+```
+
+**最后那句很重要** —— 如果同一类错误反复出现,说明提示词或参数要调,
+而不是每章都硬修。把它反馈给我,我来调。
+
+获取下一批 id:
+
+```powershell
+.\.venv\Scripts\python.exe -m nlnotes next --count 5
+```
+
+随时看整体进度:
+
+```powershell
+.\.venv\Scripts\python.exe -m nlnotes status --detail
+```
+
+### 4.2 某个协议的章节都写完后,做面试复习笔记
+
+```powershell
+.\.venv\Scripts\python.exe -m nlnotes groups --list      # 看各协议完成了几章
+.\.venv\Scripts\python.exe -m nlnotes groups --group OSPF
+```
+
+然后粘给 Grok:
+
+```
+请产出 OSPF 的协议级面试复习笔记。
+
+必读:
+1. prompts/50-面试复习.md                    ← 系统提示词,**不要**用章节笔记那份
+2. build/groups/igp-ospf/TASK.md              ← 具体要求,以它为准
+3. build/groups/igp-ospf/chapters.md          ← 出题素材(含 pdf_id 与页码)
+4. build/groups/igp-ospf/interview.schema.json
+5. 需要复制英文原句时,回 build/extract/<pdf_id>/text.md 取
+
+你的身份:15 年经验的资深网络与安全架构专家 + 大厂技术面试官。
+要产出:知识体系图、跨章必须掌握清单、高频必考原理题(高分答题模板 + 得分要点)、
+场景化面试题(情景模拟 + 解题框架)、面试官连环追问(正好三层递进)、避坑指南。
+问题与答案全部中英双语。
+
+**发散的边界(最重要)**:
+- 题目的核心答案、原理、机制、数值、判定顺序 → 必须能在 grounding 指向的原文页找到
+- 工程经验、厂商差异、版本演进、跨协议对比 → 只能放 extension_zh / extension_en,
+  会被渲染成"课程外扩展"独立区块
+
+产出:build/groups/igp-ospf/OUTPUT/interview.json
+
+写完运行:
+  .\.venv\Scripts\python.exe -m nlnotes build-group --group OSPF
+
+按 build/reports/group-igp-ospf.json 的报告逐条修到通过。
+```
+
+产出在 `notes\<方向>\<协议>\00-面试复习-<协议>.md`。
+
+### 4.3 收尾
+
+```powershell
+.\.venv\Scripts\python.exe -m nlnotes index          # 重建 notes\README.md 导航
+.\.venv\Scripts\python.exe -m nlnotes status --detail
+```
+
+---
+
+## 5. 用 Cursor 跑的几个注意点
+
+### 5.1 让 Grok 一次只做一章
+
+同时开多章最容易出的错是**页码串了** —— 把 A 章的内容标成 B 章的页码。
+提示词里明确"一章一章来,通过了再进入下一章"。
+
+### 5.2 别让它"帮你优化"门禁
+
+模型有时会自作聪明:改 `config/pipeline.json` 的阈值、往 `token_whitelist` 里
+塞协议名、或者删掉内容让覆盖度检查通过。这些都会让笔记失去可信度。
+`AGENTS.md` 和 `.cursor/rules/nlnotes.mdc` 里已经写明禁止,
+但如果你发现它这么干了,直接让它 `git checkout config/pipeline.json` 还原。
+
+### 5.3 图要真的看
+
+如果你没开 OCR,一定要在提示词里强调"打开 `figures.md` 里的每张图片实际看一遍"。
+Grok 4.6 能读图,但如果不明确要求,它可能只读 `figures.md` 的文字描述就开始写,
+结果 `labels_seen` 填错,被门禁 `T001` 拦下。
+
+开了 OCR 的话,图上的文字会直接出现在 `figures.md` 里,这个风险就基本消除了
+—— 这也是我建议开 OCR 的主要原因。
+
+### 5.4 请求额度的取舍
+
+粗算:每章 1 次撰写 + 平均 1~2 次修订 ≈ 2~3 次请求。
+几十章还好,几百章就比较可观了。所以:
+
+- **前期用 Cursor**:方便,能随时看到它在干什么,便于调风格;
+- **确认风格稳定后考虑切 API**:`nlnotes write` 可以挂着跑一整晚,
+  单章成本几分钱到几毛钱人民币的量级,而且不占 Cursor 额度。
+  切换只需在 `config/pipeline.json` 填 `writer_base_url` / `writer_model`
+  并设一个环境变量,笔记质量不受影响(门禁一样严)。
+
+### 5.5 中断了怎么办
+
+随时可以停。已经通过门禁的章节不会被重做:
+
+- `nlnotes next` 只列还没写的;
+- `nlnotes write`(如果你后来切了 API)会自动跳过已通过的;
+- `nlnotes status --detail` 显示每章处于哪个阶段。
+
+---
+
+## 6. 出问题时最快的自查路径
+
+| 现象 | 先看这里 |
+| --- | --- |
+| 命令报 `课程根目录不存在` | `config\pipeline.json` 的 `source_root` 是不是写了单反斜杠 |
+| 扫描到 0 个 PDF | 路径对不对;文件是不是真的 `.pdf` |
+| 大量 PDF 被 audit 剔除 | `build\audit.md` 的原因列;多半是扫描件,需要先 OCR |
+| 一张图都没抽到 | `build\diagnosis.md` 的第四节;可能要调 `figure_min_*` 或 `vector_min_drawings` |
+| 自制图里中文是方块 | `config` 的 `font_path` 没设或路径错 |
+| 门禁反复报同一类错误 | `prompts\40-修订循环.md` 的错误码对照表;若是系统性问题请反馈给我 |
+| 不知道现在做到哪了 | `nlnotes status --detail` 与 `notes\README.md` |
+
+更多见 [`05-常见问题.md`](05-常见问题.md)。
+
+---
+
+## 7. 现在就做这两件事
+
+1. 按第 1 节把环境装好;
+2. 把第 2 节那段提示词粘给 Grok 4.6,跑完把 `build\diagnosis.md` 的内容发我。
+
+我看到诊断报告后,会给出针对你真实 PDF 排版的参数调整建议 —— 这是目前唯一还需要我介入的环节。
+之后的批量生产你自己跑就行。

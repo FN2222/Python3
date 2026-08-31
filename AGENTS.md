@@ -58,6 +58,7 @@
 ```bash
 python -m nlnotes doctor                  # 体检:路径/依赖/中文字体/可选工具
 python -m nlnotes audit                   # PDF 体检,剔除扫描件/加密/乱码文件
+python -m nlnotes diag                    # 打包诊断信息到 build/diagnosis.md(求助时用)
 python -m nlnotes prepare --path OSPF --limit 3   # scan+extract+tasks(建议先小批)
 python -m nlnotes next                    # 列出接下来该写哪几章
 python -m nlnotes write --dry-run         # 估算 AI 撰写成本,不发请求
@@ -142,3 +143,4 @@ Linux 上中文字体一般能自动探测到 `/usr/share/fonts/truetype/wqy/wqy
 | [`docs/05-常见问题.md`](docs/05-常见问题.md) | 抽不到图、中文方块、覆盖度过不了等 |
 | [`docs/06-会话交接.md`](docs/06-会话交接.md) | **历史决策、踩过的坑、当前进度、下一步** |
 | [`docs/07-批量自动化与成本.md`](docs/07-批量自动化与成本.md) | 哪些免费哪些花钱、全自动跑法、省钱做法 |
+| [`docs/08-本机上手-用Cursor跑.md`](docs/08-本机上手-用Cursor跑.md) | 在本机用 Cursor 跑的完整步骤与可复制提示词 |

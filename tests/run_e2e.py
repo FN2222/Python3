@@ -235,6 +235,20 @@ def main() -> int:
     proc = run(["write", "--dry-run", "--force", "--id", pdf_id, *COMMON])
     check("成本预估" in proc.stdout, "--dry-run 只预估不发请求")
 
+    run(["diag", *COMMON])
+    diag_md = BUILD / "diagnosis.md"
+    check(diag_md.exists(), "生成诊断报告 build/diagnosis.md")
+    dtext = diag_md.read_text(encoding="utf-8")
+    for needle, desc in [
+        ("关键抽取参数", "诊断报告含当前抽取参数"),
+        ("课程目录概况", "诊断报告含目录概况"),
+        ("PDF 体检", "诊断报告含体检汇总"),
+        ("抽取质量", "诊断报告含抽取质量统计"),
+        ("抽出的图片清单", "诊断报告含抽样图片清单"),
+        ("原文文本层样例", "诊断报告含原文文本样例"),
+    ]:
+        check(needle in dtext, desc)
+
     # ---------------------------------------------------------------- 6
     print("\n[7/8] 反臆想门禁:必须拦住的反例")
     note["pdf_id"] = pdf_id
