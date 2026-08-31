@@ -138,75 +138,68 @@ cd D:\Python3
 .\scripts\Update.ps1 -UpgradeConfig
 ```
 
-#### 首次自助更新(本地还没有 Update.ps1,或脚本一跑就报缺少 `}`)
+#### 首次自助更新(本地脚本报缺少 `}` ,或 Invoke-WebRequest 报 TLS)
 
-如果上面那条报 `无法将".\scripts\Update.ps1"项识别为 cmdlet`,
-说明本地还没有这个脚本。
-如果报一堆 `ParserError` / `缺少右 '}'` / 中文乱码,
-说明本地**有一份旧的无 BOM 脚本**,PowerShell 5.1 按 GBK 读坏了 —— 文件在,只是不能跑。
+不要再跑本机那份旧的 `Update.ps1`,也不要用 `Invoke-WebRequest` ——
+你的环境里前者编码坏了,后者会被公司网络拦掉。
+`init --upgrade` 显示「配置已是最新」**不等于代码已更新**,只说明旧配置字段还在。
 
-两种情况都不要改那份坏脚本。把下面**整段**粘进本机 PowerShell 跑一次,
-它会从 GitHub 拉最新代码(含带 BOM 的 `Update.ps1`),之后就能一直用脚本了:
+**先试这一段**(用 Windows 自带的 `curl.exe`,绕过 .NET 的证书链问题):
 
 ```powershell
 cd D:\Python3
+$ErrorActionPreference = "Stop"
 $b = "cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b"
-$t = "$env:TEMP\nl-up"
+$url = "https://github.com/FN2222/Python3/archive/refs/heads/$b.zip"
+$t = Join-Path $env:TEMP "nl-up"
+$zip = Join-Path $t "s.zip"
 Remove-Item $t -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $t | Out-Null
-$ProgressPreference = "SilentlyContinue"
-Invoke-WebRequest "https://github.com/FN2222/Python3/archive/refs/heads/$b.zip" `
-  -OutFile "$t\s.zip" -UseBasicParsing
-Expand-Archive "$t\s.zip" $t -Force
-$src = (Get-ChildItem $t -Directory)[0].FullName
+Write-Host "downloading with curl.exe ..."
+curl.exe --ssl-no-revoke -L --fail -o $zip $url
+if (-not (Test-Path $zip)) { throw "download failed" }
+if ((Get-Item $zip).Length -lt 10000) { throw "download too small, not a zip" }
+Expand-Archive $zip $t -Force
+$src = (Get-ChildItem $t -Directory | Select-Object -First 1).FullName
 robocopy $src . /E /NFL /NDL /NJH /NJS /NP /XF pipeline.json selection.txt `
   /XD build notes out .venv | Out-Null
 Remove-Item $t -Recurse -Force
 .\.venv\Scripts\python.exe -m nlnotes init --upgrade
+.\.venv\Scripts\python.exe -m nlnotes doctor
 ```
 
-这段和 `Update.ps1` 做的是同一件事:下载分支 ZIP → 用 robocopy 合并覆盖代码 →
-补齐配置项。你的 `config\pipeline.json`、`config\selection.txt`、
-`build\`、`notes\`、`.venv\` 都会被跳过。
-
-#### 如果连 `Invoke-WebRequest` 都报 TLS 错误
-
-报 `未能为 SSL/TLS 安全通道建立信任关系` 说明公司网络对 .NET 的下载也做了拦截。
-两条出路:
-
-**出路一:先启用 TLS 1.2,再用 curl 绕过吊销检查**(curl.exe 是 Windows 10+ 自带的):
+成功的话,`doctor` 第一行应显示 `nlnotes 1.1.2`(或更新)。然后就可以:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = 3072
-curl.exe --ssl-no-revoke -sSL -o "$env:TEMP\nl.zip" `
-  "https://github.com/FN2222/Python3/archive/refs/heads/cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip"
+.\scripts\Update.ps1 -UpgradeConfig
 ```
 
-`--ssl-no-revoke` 关掉的是**证书吊销检查**(和 git 的 `http.schannelCheckRevoke false`
-同一个道理),证书本身仍然照常校验。
+新脚本是纯 ASCII,PowerShell 5.1 不会再因为编码报缺少 `}`。
 
-**出路二(最省事):浏览器下载 ZIP,再用下面这段合并 —— 不依赖本机那份坏掉的 Update.ps1**
+**curl 也失败时:浏览器下载,不要手工解压**
 
-1. 浏览器打开并下载:
+1. 浏览器打开:
    https://github.com/FN2222/Python3/archive/refs/heads/cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip
-2. 把下载的 zip 放着别解压,然后在本机 PowerShell 跑(路径按实际文件名改):
+2. 看下载文件夹里实际文件名,在 PowerShell 里跑(只改第一行路径):
 
 ```powershell
 cd D:\Python3
 $zip = "$env:USERPROFILE\Downloads\Python3-cursor-networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip"
-$t = "$env:TEMP\nl-up"
+dir $zip
+$t = Join-Path $env:TEMP "nl-up"
 Remove-Item $t -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $t | Out-Null
 Expand-Archive $zip $t -Force
-$src = (Get-ChildItem $t -Directory)[0].FullName
+$src = (Get-ChildItem $t -Directory | Select-Object -First 1).FullName
 robocopy $src . /E /NFL /NDL /NJH /NJS /NP /XF pipeline.json selection.txt `
   /XD build notes out .venv | Out-Null
 Remove-Item $t -Recurse -Force
 .\.venv\Scripts\python.exe -m nlnotes init --upgrade
+.\.venv\Scripts\python.exe -m nlnotes doctor
 ```
 
-你的 `config\pipeline.json`、`selection.txt`、`build\`、`notes\`、已写好的 5 章笔记都不会被动到。
-覆盖完成后再跑 `.\scripts\Update.ps1 -UpgradeConfig` 就会正常,因为新脚本带 UTF-8 BOM。
+`dir $zip` 必须能列出文件;若报找不到,把 `$zip` 改成 `dir $env:USERPROFILE\Downloads\*.zip` 看到的那个真实名字。
+`config`、`build`、`notes`、已通过的 5 章笔记都不会被动到。
 
 下面是分情况的手工做法。先判断你当初是怎么拿到代码的:
 

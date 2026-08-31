@@ -1,18 +1,15 @@
 ﻿<#
 .SYNOPSIS
-    一键更新 nlnotes 代码(不依赖 git,适合公司网络下 git 报证书错误的情况)
+    Update nlnotes code without git (for networks that break git TLS).
 
 .DESCRIPTION
-    从 GitHub 下载分支 ZIP 并覆盖本地代码文件,自动跳过你的配置与产物:
-      不会被动到:config\pipeline.json、config\selection.txt、build\、notes\、.venv\
+    Downloads the branch ZIP from GitHub and overlays code files.
+    Never touches: config\pipeline.json, config\selection.txt, build\, notes\, .venv\
 
-    自动下载会依次尝试:启用 TLS 1.2/1.3 的 Invoke-WebRequest、
-    curl.exe --ssl-no-revoke。公司网络拦得厉害时两条都会失败,
-    此时改用浏览器下载 ZIP,再用 -ZipPath 把它交给本脚本(不用你手工解压)。
+    Download order: Invoke-WebRequest (TLS 1.2) then curl.exe --ssl-no-revoke.
+    If both fail, download the ZIP in a browser and pass -ZipPath (no manual unzip).
 
-.NOTES
-    第一次用不了这个脚本?说明你本地的代码还没有它(脚本没法更新到包含它自己的版本)。
-    先按 docs/08-本机上手-用Cursor跑.md 里的「首次自助更新」拉一次。
+    This file is ASCII-only so Windows PowerShell 5.1 can parse it even without a BOM.
 
 .EXAMPLE
     .\scripts\Update.ps1 -UpgradeConfig
@@ -41,29 +38,26 @@ New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 
 function Show-ManualSteps {
     Write-Host ""
-    Write-Host "改用浏览器下载,然后把 ZIP 直接交给本脚本(不用手工解压):" -ForegroundColor Yellow
+    Write-Host "Auto download failed (corporate TLS intercept)." -ForegroundColor Red
+    Write-Host "Download the ZIP in your browser, then run (do not unzip by hand):" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  1) 浏览器打开并下载:" -ForegroundColor Yellow
-    Write-Host "     $zipUrl" -ForegroundColor Cyan
+    Write-Host "  $zipUrl" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  2) 然后执行(把路径换成你实际的下载位置):" -ForegroundColor Yellow
-    Write-Host '     .\scripts\Update.ps1 -ZipPath "$env:USERPROFILE\Downloads\你下载的.zip" -UpgradeConfig' -ForegroundColor Cyan
+    Write-Host '  .\scripts\Update.ps1 -ZipPath "$env:USERPROFILE\Downloads\the-file.zip" -UpgradeConfig' -ForegroundColor Cyan
     Write-Host ""
 }
-
-# ---------------------------------------------------------------- 取得 ZIP
 
 if ($ZipPath -ne "") {
-    if (-not (Test-Path $ZipPath)) {
-        Write-Host "找不到指定的 ZIP: $ZipPath" -ForegroundColor Red
+    if (-not (Test-Path -LiteralPath $ZipPath)) {
+        Write-Host "ZIP not found: $ZipPath" -ForegroundColor Red
         exit 1
     }
-    Write-Host "==> 使用本地 ZIP" -ForegroundColor Cyan
+    Write-Host "==> using local ZIP" -ForegroundColor Cyan
     Write-Host "    $ZipPath" -ForegroundColor DarkGray
-    Copy-Item -Path $ZipPath -Destination $zipFile -Force
+    Copy-Item -LiteralPath $ZipPath -Destination $zipFile -Force
 }
 else {
-    Write-Host "==> 下载代码" -ForegroundColor Cyan
+    Write-Host "==> download" -ForegroundColor Cyan
     Write-Host "    $zipUrl" -ForegroundColor DarkGray
     $ProgressPreference = "SilentlyContinue"
     $ok = $false
@@ -72,32 +66,31 @@ else {
         [Net.ServicePointManager]::SecurityProtocol = 3072
     }
     catch {
-        Write-Host "    (无法设置 TLS 1.2,继续尝试)" -ForegroundColor DarkGray
+        Write-Host "    (could not force TLS 1.2, continuing)" -ForegroundColor DarkGray
     }
 
     try {
         Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing
-        $ok = $true
+        if ((Test-Path $zipFile) -and ((Get-Item $zipFile).Length -gt 10000)) {
+            $ok = $true
+        }
     }
     catch {
-        $msg = $_.Exception.Message
-        Write-Host "    Invoke-WebRequest 失败: $msg" -ForegroundColor DarkYellow
+        Write-Host "    Invoke-WebRequest failed: $($_.Exception.Message)" -ForegroundColor DarkYellow
     }
 
     if (-not $ok) {
         $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
         if ($curl) {
-            Write-Host "    改用 curl.exe --ssl-no-revoke 重试" -ForegroundColor DarkYellow
-            & $curl.Source --ssl-no-revoke -sSL -o $zipFile $zipUrl
-            if (($LASTEXITCODE -eq 0) -and (Test-Path $zipFile)) {
+            Write-Host "    retry with curl.exe --ssl-no-revoke" -ForegroundColor DarkYellow
+            & $curl.Source --ssl-no-revoke -L --fail -sS -o $zipFile $zipUrl
+            if (($LASTEXITCODE -eq 0) -and (Test-Path $zipFile) -and ((Get-Item $zipFile).Length -gt 10000)) {
                 $ok = $true
             }
         }
     }
 
     if (-not $ok) {
-        Write-Host ""
-        Write-Host "自动下载失败(公司网络的 TLS 拦截)。" -ForegroundColor Red
         Show-ManualSteps
         Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
         exit 1
@@ -105,21 +98,17 @@ else {
 }
 
 $sizeKb = [math]::Round((Get-Item $zipFile).Length / 1KB)
-Write-Host "    就绪 ($sizeKb KB)" -ForegroundColor DarkGray
+Write-Host "    ready $sizeKb KB" -ForegroundColor DarkGray
 
-# ---------------------------------------------------------------- 解压并覆盖
-
-Write-Host "==> 解压" -ForegroundColor Cyan
+Write-Host "==> unzip" -ForegroundColor Cyan
 Expand-Archive -Path $zipFile -DestinationPath $tmp -Force
 $inner = Get-ChildItem -Path $tmp -Directory | Select-Object -First 1
 if ($null -eq $inner) {
-    Write-Host "解压结果异常: 没找到顶层目录" -ForegroundColor Red
+    Write-Host "unzip failed: no top-level folder" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "==> 覆盖代码文件" -ForegroundColor Cyan
-# 用 robocopy 而不是 Copy-Item: 目标目录已存在时 Copy-Item -Recurse 可能嵌套一层。
-# 没有用 /MIR,所以不会删除本地多出来的文件。
+Write-Host "==> overlay code" -ForegroundColor Cyan
 $rcArgs = @(
     $inner.FullName, $repoRoot,
     "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NP",
@@ -128,21 +117,19 @@ $rcArgs = @(
 )
 & robocopy @rcArgs | Out-Null
 if ($LASTEXITCODE -ge 8) {
-    Write-Host "复制失败 (robocopy 退出码 $LASTEXITCODE)" -ForegroundColor Red
+    Write-Host "copy failed (robocopy exit $LASTEXITCODE)" -ForegroundColor Red
     exit 1
 }
-Write-Host "    完成" -ForegroundColor DarkGray
+Write-Host "    done" -ForegroundColor DarkGray
 
 if (-not $KeepDownload) {
     Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host ""
-Write-Host "代码已更新" -ForegroundColor Green
-Write-Host "你的 config\pipeline.json、config\selection.txt、build\、notes\、.venv\ 都没有被动过。"
+Write-Host "code updated" -ForegroundColor Green
+Write-Host "left untouched: config\pipeline.json, config\selection.txt, build\, notes\, .venv\"
 Write-Host ""
-
-# ---------------------------------------------------------------- 后续步骤
 
 $py = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $py)) {
@@ -150,24 +137,23 @@ if (-not (Test-Path $py)) {
 }
 
 if ($UpgradeConfig) {
-    Write-Host "==> 补齐配置项" -ForegroundColor Cyan
+    Write-Host "==> upgrade config" -ForegroundColor Cyan
     & $py -m nlnotes init --upgrade
 }
 else {
-    Write-Host "下一步:" -ForegroundColor Yellow
-    Write-Host "  1) 补齐配置文件的新增项(保留你改过的值):" -ForegroundColor Yellow
-    Write-Host "     .\.venv\Scripts\python.exe -m nlnotes init --upgrade" -ForegroundColor Cyan
+    Write-Host "next:" -ForegroundColor Yellow
+    Write-Host "  .\.venv\Scripts\python.exe -m nlnotes init --upgrade" -ForegroundColor Cyan
 }
 
 if ($ReExtract) {
     Write-Host ""
-    Write-Host "==> 重跑抽取" -ForegroundColor Cyan
+    Write-Host "==> re-extract" -ForegroundColor Cyan
     & $py -m nlnotes extract --force
     & $py -m nlnotes tasks --force
 }
 elseif (-not $UpgradeConfig) {
-    Write-Host "  2) 若本次改动涉及抽取阶段(噪声清理/图片参数/OCR),重跑:" -ForegroundColor Yellow
+    Write-Host "  if extract/OCR/noise-filter changed:" -ForegroundColor Yellow
     Write-Host "     .\.venv\Scripts\python.exe -m nlnotes extract --force" -ForegroundColor Cyan
     Write-Host "     .\.venv\Scripts\python.exe -m nlnotes tasks --force" -ForegroundColor Cyan
-    Write-Host "     (tasks --force 不会动已写好的 OUTPUT\note.json)" -ForegroundColor DarkGray
+    Write-Host "     (tasks --force keeps OUTPUT\note.json)" -ForegroundColor DarkGray
 }
