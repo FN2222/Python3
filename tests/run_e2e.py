@@ -64,20 +64,39 @@ def main() -> int:
     TMP.mkdir(parents=True, exist_ok=True)
 
     # ---------------------------------------------------------------- 1
-    print("\n[1/8] 生成合成课程 PDF(1 份正常 + 1 份扫描件)")
+    print("\n[1/8] 生成合成课程 PDF(正常 + 扫描件 + 网页导出风格深目录)")
     sys.path.insert(0, str(ROOT / "tests"))
-    from make_sample_pdf import build, build_scanned
+    from make_sample_pdf import build, build_scanned, build_weblike
     pdf = build(SRC)
     scanned = build_scanned(SRC)
+    weblike = build_weblike(SRC)
     before = pdf.stat().st_mtime, pdf.stat().st_size
 
     print("\n[2/8] scan + extract + tasks")
     run(["prepare", *COMMON])
     manifest = load(BUILD / "manifest.json")
-    check(manifest["count"] == 2, f"扫描到 2 个 PDF(实际 {manifest['count']})")
-    good = next(i for i in manifest["items"] if "Scanned" not in i["rel_path"])
+    expected = 2 + len(weblike)
+    check(manifest["count"] == expected,
+          f"扫描到 {expected} 个 PDF(实际 {manifest['count']})")
+    check(max(i["depth"] for i in manifest["items"]) >= 5,
+          "识别到深层嵌套目录(≥5 层)")
+    good = next(i for i in manifest["items"] if "Neighbor Adjacency" in i["rel_path"])
     bad = next(i for i in manifest["items"] if "Scanned" in i["rel_path"])
+    web = next(i for i in manifest["items"] if "Lesson 1.pdf" in i["rel_path"])
     pdf_id = good["id"]
+
+    # --- 网页导出 PDF 的站点导航噪声必须被清掉 ---
+    wmeta = load(BUILD / "extract" / web["id"] / "extract.json")
+    wtext = (BUILD / "extract" / web["id"] / "text.md").read_text(encoding="utf-8")
+    wsecs = load(BUILD / "extract" / web["id"] / "sections.json")["sections"]
+    check(wmeta.get("noise_filter", {}).get("dropped_lines", 0) >= 6,
+          f"清掉了站点导航噪声(实际 {wmeta.get('noise_filter', {}).get('dropped_lines')} 行)")
+    for noise in ("Search …", "Lesson Contents", "«", "Filtering »"):
+        check(noise not in wtext, f"原文里已不含噪声「{noise}」")
+    check(not any("«" in x["title"] or "»" in x["title"] for x in wsecs),
+          "翻页箭头不再被误判成标题")
+    check("OSPF supports a number of methods" in wtext, "正文没有被误删")
+    check(any("OSPF Filtering Lesson" in x["title"] for x in wsecs), "真正的标题仍被识别")
 
     meta = load(BUILD / "extract" / pdf_id / "extract.json")
     check(meta["pages_total"] == 4, f"抽取到 4 页(实际 {meta['pages_total']})")
@@ -154,10 +173,18 @@ def main() -> int:
 
     # ---------------------------------------------------------------- 4
     print("\n[5/8] 协议级面试复习笔记")
-    proc = run(["groups", "--list", *COMMON])
-    check("IGP/OSPF" in proc.stdout, "按协议正确分组(IGP/OSPF)")
+    proc = run(["groups", "--list", "--json", *COMMON])
+    groups_info = json.loads(proc.stdout)
+    check(all("Route filtering" not in g["key"] for g in groups_info),
+          "只有 3 章的深目录被自适应向上合并,没有单独成组")
+    check(any(g["chapters"] >= 6 for g in groups_info),
+          f"合并后存在 ≥6 章的分组(各组章节数 {[g['chapters'] for g in groups_info]})")
+    mine = next(g for g in groups_info
+                if any(pdf_id in x for x in [g["id"]]) or g["key"] in good["rel_path"])
+    group_id, group_key, group_title = mine["id"], mine["key"], mine["title"]
+
     run(["groups", *COMMON])
-    gdir = BUILD / "groups" / "igp-ospf"
+    gdir = BUILD / "groups" / group_id
     for f in ("TASK.md", "chapters.md", "context.json", "interview.schema.json"):
         check((gdir / f).exists(), f"分组任务包含 {f}")
     chapters_md = (gdir / "chapters.md").read_text(encoding="utf-8")
@@ -167,12 +194,13 @@ def main() -> int:
     interview = json.loads(
         (FIXTURES / "sample-interview.json").read_text(encoding="utf-8")
         .replace("__WILL_BE_PATCHED__", pdf_id))
+    interview["group_key"] = group_key
     ivp = gdir / "OUTPUT" / "interview.json"
     ivp.parent.mkdir(parents=True, exist_ok=True)
     ivp.write_text(json.dumps(interview, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    run(["build-group", "--group", "OSPF", *COMMON])
-    grep_ = load(BUILD / "reports" / "group-igp-ospf.json")
+    run(["build-group", "--group", group_key, *COMMON])
+    grep_ = load(BUILD / "reports" / f"group-{group_id}.json")
     if not grep_["passed"]:
         print(json.dumps(grep_["errors"], ensure_ascii=False, indent=2)[:3000])
     check(grep_["passed"], "示例 interview.json 通过门禁")
@@ -180,7 +208,7 @@ def main() -> int:
           f"全部 grounding 命中原文 "
           f"({grep_['stats']['grounding_matched']}/{grep_['stats']['grounding_checked']})")
 
-    imd = NOTES / "IGP" / "OSPF" / "00-面试复习-OSPF.md"
+    imd = NOTES / group_key / f"00-面试复习-{group_title}.md"
     check(imd.exists(), f"生成面试复习 Markdown: {imd.relative_to(ROOT)}")
     itext = imd.read_text(encoding="utf-8")
     for needle, desc in [
@@ -313,13 +341,14 @@ def main() -> int:
             {"pdf_id": "some-other-chapter-000"}),
         "出现不确定表述": lambda v: v["pitfalls"][0].update(
             {"why_wrong_zh": "我猜这里应该是记错了,大概是把两个状态搞混了吧,具体原因不太确定。"}),
+        "group_key 与实际分组不一致": lambda v: v.update({"group_key": "Made/Up/Group"}),
     }
     for desc, mutate in interview_cases.items():
         badv = json.loads(json.dumps(interview))
         mutate(badv)
         ivp.write_text(json.dumps(badv, ensure_ascii=False, indent=2), encoding="utf-8")
-        run(["build-group", "--group", "OSPF", *COMMON], expect_rc=1)
-        r = load(BUILD / "reports" / "group-igp-ospf.json")
+        run(["build-group", "--group", group_key, *COMMON], expect_rc=1)
+        r = load(BUILD / "reports" / f"group-{group_id}.json")
         codes = sorted({e["code"] for e in r["errors"]})
         check(not r["passed"], f"面试笔记拦住「{desc}」(错误码 {codes})")
 

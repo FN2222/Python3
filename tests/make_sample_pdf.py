@@ -105,6 +105,90 @@ def build(out_dir: Path) -> Path:
     return pdf
 
 
+def build_weblike(out_dir: Path, count: int = 8) -> list[Path]:
+    """模拟真实课程库:网页导出的 PDF(带站点导航噪声)+ 多层深目录。
+
+    真实的 NetworkLessons PDF 是从网页导出的,每页夹带 Search…、Lessons、
+    « »、侧边栏 Lesson Contents 目录等噪声,而且目录深度从 1 层到 6 层不等。
+    这个生成器用来验证噪声清理与自适应分组。
+    """
+    made: list[Path] = []
+    tmp = out_dir / "_img"
+    tmp.mkdir(parents=True, exist_ok=True)
+    _topology(tmp / "web.png", ["R1", "R2", "R3"], "OSPF filtering topology")
+
+    # 故意造出深浅不一的目录:深目录只有 2~3 章(会被自适应合并),浅目录章数够
+    layout = [
+        ("Cisco/CCIE Enterprise/Unit 1 Infrastructure/1.2 Routing/1.2.f Route filtering", 3),
+        ("Cisco/CCIE Enterprise/Unit 1 Infrastructure/1.2 Routing/1.2.a OSPF basics", 2),
+        ("Cisco/CCIE Enterprise/Unit 1 Infrastructure/1.3 Switching", 2),
+        ("Network Fundamentals", 1),
+    ]
+    idx = 0
+    for rel_dir, n in layout:
+        d = out_dir / rel_dir
+        d.mkdir(parents=True, exist_ok=True)
+        for k in range(n):
+            idx += 1
+            if idx > count:
+                break
+            pdf = d / f"{idx:03d} - OSPF Filtering Lesson {idx}.pdf"
+            c = canvas.Canvas(str(pdf), pagesize=A4)
+            for pg in range(2):
+                y = H - 1.6 * cm
+                # ---- 站点导航噪声(每页都有)----
+                c.setFont("Helvetica", 9)
+                c.drawString(2 * cm, y, "Search …")
+                y -= 0.9 * cm
+                c.setFont("Helvetica-Bold", 16)
+                c.drawString(2 * cm, y, f"OSPF Filtering Lesson {idx}")
+                y -= 1.0 * cm
+                c.setFont("Helvetica", 11)
+                for line in [
+                    "OSPF supports a number of methods to filter routes on a router.",
+                    "As a link-state routing protocol OSPF uses LSAs to build its database.",
+                    "Filtering LSAs between areas on an ABR is possible with a filter list.",
+                    "The distribute-list command filters routes from entering the table.",
+                ]:
+                    c.drawString(2 * cm, y, line)
+                    y -= 0.55 * cm
+                if pg == 0:
+                    # ---- 侧边栏目录副本(噪声)----
+                    y -= 0.4 * cm
+                    c.setFont("Helvetica-Bold", 11)
+                    c.drawString(2 * cm, y, "Lesson Contents")
+                    y -= 0.5 * cm
+                    c.setFont("Helvetica", 10)
+                    for t in ["1. Configuration", "1.1. Distribute-list Filtering",
+                              "2. Conclusion"]:
+                        c.drawString(2 * cm, y, t)
+                        y -= 0.45 * cm
+                    y -= 0.4 * cm
+                    c.drawImage(str(tmp / "web.png"), 2 * cm, y - 5.4 * cm,
+                                width=15 * cm, height=5.2 * cm)
+                    y -= 5.8 * cm
+                    c.setFont("Helvetica", 10)
+                    c.drawString(2 * cm, y, "Nothing fancy, we have three routers running OSPF.")
+                    y -= 0.8 * cm
+                    c.setFont("Courier", 9)
+                    for line in ["R1#show running-config | section ospf",
+                                 "router ospf 1",
+                                 " network 192.168.12.0 0.0.0.255 area 0"]:
+                        c.drawString(2 * cm, y, line)
+                        y -= 0.42 * cm
+                # ---- 页脚导航噪声 ----
+                c.setFont("Helvetica", 9)
+                c.drawString(2 * cm, 2.2 * cm, "Lessons")
+                c.setFont("Helvetica-Bold", 20)
+                c.drawString(2 * cm, 1.4 * cm, "«")
+                c.drawString(W - 5 * cm, 1.4 * cm, "Filtering »")
+                c.showPage()
+            c.save()
+            made.append(pdf)
+    print(f"已生成 {len(made)} 份网页导出风格的测试 PDF")
+    return made
+
+
 def build_scanned(out_dir: Path) -> Path:
     """再造一份"扫描件"PDF(整页是图片、没有文本层),用来验证 audit 能把它剔除。"""
     out_dir = out_dir / "IGP" / "OSPF"
@@ -136,3 +220,5 @@ if __name__ == "__main__":
     build(target)
     if "--with-scanned" in sys.argv:
         build_scanned(target)
+    if "--with-weblike" in sys.argv:
+        build_weblike(target)

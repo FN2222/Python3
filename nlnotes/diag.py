@@ -101,6 +101,43 @@ def _manifest_section(cfg: Config) -> tuple[list[str], list[dict[str, Any]]]:
     return lines, items
 
 
+def _groups_section(cfg: Config) -> list[str]:
+    """分组预览 —— 面试复习笔记按什么粒度切,直接影响素材是否够用。"""
+    if not cfg.manifest_path.exists():
+        return []
+    try:
+        from nlnotes.groups import discover_groups
+        groups = discover_groups(cfg)
+    except Exception as exc:
+        return ["## 二点五、面试复习笔记的分组预览", "",
+                f"> 无法计算分组:{exc}", ""]
+
+    sizes = sorted((len(g["items"]) for g in groups.values()), reverse=True)
+    mode = cfg.get("group_mode", "auto")
+    lines = ["## 二点五、面试复习笔记的分组预览", "",
+             f"- 分组方式:`{mode}`"
+             + (f",每组至少 {cfg['group_min_chapters']} 章" if mode == "auto" else
+                f",按第 {cfg['group_depth']} 层目录"),
+             f"- 分组数:**{len(groups)}**(也就是最终会产出多少份面试复习笔记)",
+             f"- 每组章节数:最小 {sizes[-1] if sizes else 0} / "
+             f"中位 {sizes[len(sizes) // 2] if sizes else 0} / 最大 {sizes[0] if sizes else 0}",
+             ""]
+    small = [g for g in groups.values() if len(g["items"]) < 4]
+    if small:
+        lines.append(f"- ⚠️ 有 {len(small)} 组不足 4 章 —— 这些组的面试题素材偏少,"
+                     f"可以考虑调大 `group_min_chapters`")
+    big = [g for g in groups.values() if len(g["items"]) > 40]
+    if big:
+        lines.append(f"- ⚠️ 有 {len(big)} 组超过 40 章 —— 复习笔记会很长,"
+                     f"可以考虑调小 `group_min_chapters`,或改用 `group_mode: depth`")
+    lines += ["", "**章节数最多的 20 个分组**", "",
+              "| 分组(协议 / 方向) | 章节数 |", "| --- | --- |"]
+    for g in sorted(groups.values(), key=lambda x: -len(x["items"]))[:20]:
+        lines.append(f"| `{g['key']}` | {len(g['items'])} |")
+    lines.append("")
+    return lines
+
+
 def _audit_section(cfg: Config) -> list[str]:
     p = cfg.build_dir / "audit.json"
     if not p.exists():
@@ -158,17 +195,20 @@ def _extract_section(cfg: Config, items: list[dict[str, Any]],
 
     lines = ["## 四、抽取质量", "",
              f"已抽取 **{len(done)}** 个 PDF。下表是全部已抽取文件的统计:", "",
-             "| 文件 | 页数 | 正文页 | 位图 | 矢量图 | 代码块 | 标题来源 |",
-             "| --- | --- | --- | --- | --- | --- | --- |"]
+             "| 文件 | 页数 | 正文页 | 位图 | 矢量图 | 代码块 | 标题来源 | 清掉的噪声行 |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for it, meta in done[:40]:
         figs = read_json(cfg.extract_dir(it["id"]) / "figures.json", {"figures": []})["figures"]
         raster = sum(1 for f in figs if f.get("kind") == "raster")
         vector = sum(1 for f in figs if f.get("kind") == "vector")
         secs = read_json(cfg.extract_dir(it["id"]) / "sections.json", {"sections": []})["sections"]
         src = secs[0].get("source", "-") if secs else "未识别"
+        nf = meta.get("noise_filter") or {}
+        noise_cell = str(nf.get("dropped_lines", "-")) if nf.get("enabled") else "未启用"
         lines.append(f"| `{Path(it['rel_path']).name}` | {meta.get('pages_total')} | "
                      f"{len(meta.get('content_pages', []))} | {raster} | {vector} | "
-                     f"{meta.get('codeblock_count')} | {'PDF 书签' if src == 'toc' else src} |")
+                     f"{meta.get('codeblock_count')} | {'PDF 书签' if src == 'toc' else src} | "
+                     f"{noise_cell} |")
     if len(done) > 40:
         lines.append(f"| ...(还有 {len(done) - 40} 个) | | | | | | |")
     lines.append("")
@@ -220,6 +260,13 @@ def _samples_section(cfg: Config, done: list[tuple], sample: int) -> list[str]:
         else:
             lines += ["**没有抽到任何图片。** 请打开原 PDF 确认:是本来就没有图,还是被过滤掉了。", ""]
 
+        nf = meta.get("noise_filter") or {}
+        if nf.get("enabled") and nf.get("samples"):
+            lines += [f"**被清掉的站点导航噪声**(共 {nf.get('dropped_lines', 0)} 行,"
+                      f"下面是去重后的样例 —— 请确认没有误删正文)", "", "```"]
+            lines += [str(x) for x in nf["samples"]]
+            lines += ["```", ""]
+
         secs = read_json(d / "sections.json", {"sections": []})["sections"]
         if secs:
             lines += ["**识别到的标题层级(前 15 条)**", "", "```"]
@@ -252,6 +299,7 @@ def diagnose(cfg: Config, sample: int = 3) -> Path:
     lines += _env_section(cfg)
     man_lines, items = _manifest_section(cfg)
     lines += man_lines
+    lines += _groups_section(cfg)
     lines += _audit_section(cfg)
     ex_lines, done = _extract_section(cfg, items, sample)
     lines += ex_lines
@@ -266,7 +314,11 @@ def diagnose(cfg: Config, sample: int = 3) -> Path:
               "乱码严重的文件应该在体检里被剔除;个别断词属正常。",
               "3. **标题识别对吗?** 若大量文件「未识别」,笔记的小节划分会更依赖 AI 判断,"
               "不影响门禁,但可以接受。",
-              "4. **体检剔除的文件怎么处理?** 扫描件先 OCR 成可搜索 PDF 再放回原目录。", ""]
+              "4. **体检剔除的文件怎么处理?** 扫描件先 OCR 成可搜索 PDF 再放回原目录。",
+              "5. **噪声清掉的对吗?** 看「被清掉的站点导航噪声」样例,"
+              "如果误删了正文,把对应的词从 config 的 `text_noise_lines` 里去掉。",
+              "6. **分组粒度合适吗?** 看第二点五节。分组数就是最终面试复习笔记的份数;"
+              "每组章节数太少就调大 `group_min_chapters`,太多就调小。", ""]
 
     out = cfg.build_dir / "diagnosis.md"
     write_text(out, "\n".join(lines))

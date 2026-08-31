@@ -267,7 +267,8 @@ def assemble_group(cfg: Config, group: dict[str, Any], verified: bool = False,
         p.setdefault("trap_type_zh", "")
         p.setdefault("extension_zh", "")
 
-    key = iv.get("group_key") or group["key"]
+    # 输出路径只认分组自身的 key —— AI 写在 group_key 里的值由 verify 校验,不参与定位
+    key = group["key"]
     rel = (f"{key}/00-面试复习-{group['title']}.md" if key != "(根目录)"
            else f"00-面试复习-{group['title']}.md")
     md_path = cfg.notes_dir / rel

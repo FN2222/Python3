@@ -36,6 +36,27 @@ DEFAULTS: dict[str, Any] = {
     "figure_ocr": False,
     "ocr_lang": "eng",
 
+    # ---------- 网页转 PDF 的噪声清理 ----------
+    # NetworkLessons 的 PDF 是从网页导出的,每页会夹带站点导航文字
+    # (Search…、Lessons、« »、侧边栏的 Lesson Contents 目录)。
+    # 这些噪声会污染原文证据库,还会被字号推断误判成标题(比如 « 被当成一级标题)。
+    # 下面这些行会在抽取阶段被丢弃,text.md / 证据库 / 标题识别三处同时生效。
+    "clean_text_noise": True,
+    "text_noise_lines": [               # 整行完全匹配(忽略大小写与首尾空白)才丢弃
+        "search …", "search ...", "search", "lessons", "lesson contents",
+        "home", "forum", "members", "sign in", "sign up", "log in", "logout",
+        "menu", "table of contents", "share this lesson", "about networklessons",
+    ],
+    "text_noise_patterns": [            # 正则,匹配即丢弃(用于翻页链接)
+        r"^\s*«",                        # « Previous lesson
+        r"»\s*$",                        # Next lesson »
+        r"^\s*(page\s+)?\d+\s*/\s*\d+\s*$",   # 3 / 14 这类页码
+        r"^\s*©\s*\d{4}",                # 版权行
+    ],
+    # 侧边栏目录:出现 "Lesson Contents" 之后紧跟的编号条目属于目录副本,一并丢弃
+    "drop_toc_after_markers": ["lesson contents", "table of contents"],
+    "drop_toc_max_lines": 25,
+
     # ---------- 任务包 ----------
     "chunk_chars": 12000,             # 原文过长时的分片大小(便于 AI 分段阅读)
     "task_include_full_text": True,
@@ -69,8 +90,15 @@ DEFAULTS: dict[str, Any] = {
     # ---------- 协议级面试复习笔记 ----------
     # 面试题(基础/原理题、场景题、连环追问、避坑)放在整个协议之后,而不是每章之后,
     # 这样跨章素材足够,追问才能有深度。
-    # group_depth <= 0 表示按"最后一层目录"分组(通常就是协议名,如 IGP/OSPF)。
-    "group_depth": 0,
+    # 真实课程库的目录深度往往从 1 层到 6 层不等,固定层级会把面试笔记切得太碎
+    # (比如某个叶子目录只有 3 章)。所以默认用 auto:从叶子目录开始向上合并,
+    # 直到这一组的章节数达到 group_min_chapters,这样每份面试复习笔记的素材都够。
+    # 想手工控制就把 group_mode 改成 "depth",再用 group_depth 指定层数。
+    "group_mode": "auto",               # "auto" | "depth"
+    "group_min_chapters": 6,            # auto 模式下每组至少要有多少章
+    "group_depth": 0,                   # depth 模式:<=0 表示取最后一层目录
+    # 分组很大时,chapters.md 会很长。给它一个字符预算,超了就按章均摊裁剪。
+    "group_chapters_budget_chars": 90000,
     "interview_quote_threshold": 88,     # grounding 原文比对阈值
     "interview_token_grounding": True,   # 受约束字段仍要回查本协议原文
     "interview_min_must_master": 5,

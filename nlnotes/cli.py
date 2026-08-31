@@ -275,12 +275,27 @@ def cmd_groups(args) -> int:
     cfg = _cfg(args)
     picked = _pick_groups(cfg, args)
     if args.list:
-        print(f"共 {len(picked)} 个分组(按最后一层目录聚合):\n")
-        for g in picked:
+        if getattr(args, "json", False):
+            import json as _json
+            print(_json.dumps([
+                {"id": g["id"], "key": g["key"], "title": g["title"],
+                 "chapters": len(g["items"]),
+                 "notes_done": len(chapter_notes(cfg, g))}
+                for g in sorted(picked, key=lambda x: -len(x["items"]))
+            ], ensure_ascii=False, indent=2))
+            return 0
+        mode = str(cfg.get("group_mode", "auto")).lower()
+        how = (f"自适应聚合,每组至少 {cfg['group_min_chapters']} 章" if mode == "auto"
+               else (f"按第 {cfg['group_depth']} 层目录聚合" if int(cfg["group_depth"]) > 0
+                     else "按最后一层目录聚合"))
+        print(f"共 {len(picked)} 个分组({how}):\n")
+        for g in sorted(picked, key=lambda x: -len(x["items"])):
             done = len(chapter_notes(cfg, g))
             print(f"- {g['key']}  (id: {g['id']})")
             print(f"    章节: {len(g['items'])} 个,已完成笔记: {done} 个"
                   f"{'  ✅ 可生成面试复习' if done else '  ⚠️ 先完成章节笔记'}")
+        print(f"\n说明:分组数 = 最终会产出多少份面试复习笔记。"
+              f"觉得切得太碎就调大 group_min_chapters,太粗就调小。")
         return 0
     made = 0
     for g in picked:
@@ -515,6 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--group", nargs="*", help="只处理指定分组(支持关键字,如 OSPF)")
     sp.add_argument("--path", dest="filter_path", help="按相对路径关键字筛选")
     sp.add_argument("--list", action="store_true", help="只列出分组与完成情况")
+    sp.add_argument("--json", action="store_true", help="配合 --list,输出机器可读 JSON")
     sp.add_argument("--force", action="store_true")
     sp.set_defaults(func=cmd_groups)
 

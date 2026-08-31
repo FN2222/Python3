@@ -34,8 +34,70 @@ MONO_HINT = re.compile(r"(mono|courier|consol|menlo|inconsolata|dejavusansmono)"
 
 # --------------------------------------------------------------------------- 文本与结构
 
-def _page_lines(page: "fitz.Page") -> list[dict[str, Any]]:
-    """返回该页所有文本行:{text, bbox, size, mono}。"""
+TOC_ENTRY = re.compile(r"^\s*\d+(\.\d+)*\.?\s+\S")
+
+
+class NoiseFilter:
+    """丢掉网页导出 PDF 夹带的站点导航文字。
+
+    只做整行匹配与少量正则,绝不做子串匹配 —— 否则会误删正文。
+    统计丢弃条数,写进抽取产物,便于事后核对是否过度清理。
+    """
+
+    def __init__(self, cfg: Config) -> None:
+        self.enabled = bool(cfg.get("clean_text_noise", True))
+        self.exact = {str(s).strip().lower() for s in cfg.get("text_noise_lines", [])}
+        self.patterns = [re.compile(p, re.I) for p in cfg.get("text_noise_patterns", [])]
+        self.toc_markers = {str(s).strip().lower() for s in cfg.get("drop_toc_after_markers", [])}
+        self.toc_max = int(cfg.get("drop_toc_max_lines", 25))
+        self.dropped = 0
+        self.dropped_samples: list[str] = []
+
+    def _is_noise_line(self, text: str) -> bool:
+        t = norm_space(text)
+        if not t:
+            return False
+        if t.lower() in self.exact:
+            return True
+        return any(p.search(t) for p in self.patterns)
+
+    def apply(self, lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return lines
+        kept: list[dict[str, Any]] = []
+        toc_budget = 0
+        for ln in lines:
+            t = norm_space(ln["text"])
+            low = t.lower()
+
+            if toc_budget > 0:
+                # 处在"侧边栏目录"区间内:编号条目继续丢,遇到正常句子就结束
+                if TOC_ENTRY.match(t) and len(t) < 90 and not t.endswith((".", ":", ";")):
+                    toc_budget -= 1
+                    self._record(t)
+                    continue
+                toc_budget = 0
+
+            if self._is_noise_line(t):
+                self._record(t)
+                if low in self.toc_markers:
+                    toc_budget = self.toc_max
+                continue
+            kept.append(ln)
+        return kept
+
+    def _record(self, text: str) -> None:
+        self.dropped += 1
+        if len(self.dropped_samples) < 12 and text not in self.dropped_samples:
+            self.dropped_samples.append(text)
+
+    def stats(self) -> dict[str, Any]:
+        return {"enabled": self.enabled, "dropped_lines": self.dropped,
+                "samples": self.dropped_samples}
+
+
+def _page_lines(page: "fitz.Page", noise: NoiseFilter | None = None) -> list[dict[str, Any]]:
+    """返回该页所有文本行:{text, bbox, size, mono}(已剔除站点导航噪声)。"""
     out: list[dict[str, Any]] = []
     data = page.get_text("dict")
     for block in data.get("blocks", []):
@@ -55,7 +117,12 @@ def _page_lines(page: "fitz.Page") -> list[dict[str, Any]]:
                 "mono": bool(fonts) and all(MONO_HINT.search(f or "") for f in fonts),
             })
     out.sort(key=lambda l: (round(l["bbox"][1], 1), l["bbox"][0]))
-    return out
+    return noise.apply(out) if noise else out
+
+
+def _page_text(lines: list[dict[str, Any]]) -> str:
+    """由已清理的行重建页面文本 —— 保证 text.md、证据库、标题识别三处口径一致。"""
+    return "\n".join(ln["text"].rstrip() for ln in lines).strip()
 
 
 def _body_font_size(all_lines: list[list[dict[str, Any]]]) -> float:
@@ -345,8 +412,9 @@ def extract_one(cfg: Config, item: dict[str, Any], force: bool = False) -> dict[
         old.unlink()
 
     doc = fitz.open(item["abs_path"])
+    noise = NoiseFilter(cfg)
     try:
-        all_lines = [_page_lines(p) for p in doc]
+        all_lines = [_page_lines(p, noise) for p in doc]
         body_size = _body_font_size(all_lines)
 
         pages: list[dict[str, Any]] = []
@@ -355,7 +423,7 @@ def extract_one(cfg: Config, item: dict[str, Any], force: bool = False) -> dict[
 
         for pno, page in enumerate(doc, start=1):
             lines = all_lines[pno - 1]
-            text = page.get_text("text") or ""
+            text = _page_text(lines)
             raster = _raster_figures(doc, page, pno, lines, cfg, fig_dir, seen_digests)
             vector: list[dict[str, Any]] = []
             if cfg["extract_vector_figures"]:
@@ -387,6 +455,7 @@ def extract_one(cfg: Config, item: dict[str, Any], force: bool = False) -> dict[
             "figure_pages": sorted({f["page"] for f in figures}),
             "codeblock_count": len(codeblocks),
             "body_font_size": body_size,
+            "noise_filter": noise.stats(),
             "pdf_metadata": {k: v for k, v in (doc.metadata or {}).items()
                              if k in ("title", "author", "creationDate", "producer")},
         }

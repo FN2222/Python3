@@ -28,28 +28,77 @@ SCHEMA_PATH = REPO_ROOT / "schemas" / "interview.schema.json"
 
 # ------------------------------------------------------------------ 分组
 
+ROOT_KEY = "(根目录)"
+
+
 def group_key_of(item: dict[str, Any], depth: int) -> str:
-    """depth<=0 表示取"最后一层目录"(通常就是协议名)。"""
+    """depth 模式:depth<=0 表示取"最后一层目录"(通常就是协议名)。"""
     parts = item["course_path"]
     if not parts:
-        return "(根目录)"
+        return ROOT_KEY
     if depth <= 0:
         return "/".join(parts)
     return "/".join(parts[:depth])
 
 
 def group_id_of(group_key: str) -> str:
-    return slugify(group_key.replace("/", "-"), 70)
+    """路径可能很长,截断后带哈希后缀,保证既可读又唯一。"""
+    from nlnotes.util import short_hash
+    return f"{slugify(group_key.replace('/', '-'), 50)}-{short_hash(group_key, 6)}"
+
+
+def _auto_keys(items: list[dict[str, Any]], min_chapters: int) -> dict[str, str]:
+    """自适应分组:为每个 PDF 选"章节数达标的最深祖先目录"。
+
+    课程库的目录深度不一(1~6 层),固定层级要么切太碎、要么并太粗。
+    做法是先统计每个祖先目录前缀下有多少章,再为每个 PDF 自底向上找第一个
+    章节数 >= min_chapters 的前缀。找不到就退回一级目录(允许小分组存在)。
+    """
+    from collections import Counter
+    counts: Counter[str] = Counter()
+    for it in items:
+        parts = it["course_path"]
+        if not parts:
+            counts[ROOT_KEY] += 1
+            continue
+        for d in range(1, len(parts) + 1):
+            counts["/".join(parts[:d])] += 1
+
+    assigned: dict[str, str] = {}
+    for it in items:
+        parts = it["course_path"]
+        if not parts:
+            assigned[it["id"]] = ROOT_KEY
+            continue
+        chosen = None
+        for d in range(len(parts), 0, -1):
+            key = "/".join(parts[:d])
+            if counts[key] >= min_chapters:
+                chosen = key
+                break
+        assigned[it["id"]] = chosen or "/".join(parts[:1])
+    return assigned
 
 
 def discover_groups(cfg: Config, filter_path: str | None = None) -> dict[str, dict[str, Any]]:
     """返回 {group_key: {id, key, title, items[]}}。"""
-    depth = int(cfg["group_depth"])
+    items = [it for it in load_manifest(cfg)["items"]
+             if not filter_path
+             or filter_path.replace("\\", "/").lower() in it["rel_path"].lower()]
+
+    mode = str(cfg.get("group_mode", "auto")).lower()
+    if mode == "auto":
+        # 自适应分组要基于**全库**统计,否则 --path 过滤会让分组边界随筛选条件漂移
+        all_items = load_manifest(cfg)["items"]
+        keys = _auto_keys(all_items, int(cfg["group_min_chapters"]))
+        key_of = lambda it: keys.get(it["id"]) or ROOT_KEY  # noqa: E731
+    else:
+        depth = int(cfg["group_depth"])
+        key_of = lambda it: group_key_of(it, depth)  # noqa: E731
+
     groups: dict[str, dict[str, Any]] = {}
-    for it in load_manifest(cfg)["items"]:
-        if filter_path and filter_path.replace("\\", "/").lower() not in it["rel_path"].lower():
-            continue
-        key = group_key_of(it, depth)
+    for it in items:
+        key = key_of(it)
         g = groups.setdefault(key, {
             "id": group_id_of(key), "key": key,
             "title": key.split("/")[-1], "items": [],
@@ -84,12 +133,24 @@ def chapter_notes(cfg: Config, group: dict[str, Any]) -> list[tuple[dict[str, An
 
 # ------------------------------------------------------------------ 任务包
 
-def _chapters_md(pairs: list[tuple[dict[str, Any], dict[str, Any]]]) -> str:
-    """把本组各章笔记的骨架汇总给 AI,作为出题素材(带 pdf_id 与页码,便于填 grounding)。"""
+def _chapters_md(pairs: list[tuple[dict[str, Any], dict[str, Any]]],
+                 budget_chars: int = 90000) -> str:
+    """把本组各章笔记的骨架汇总给 AI,作为出题素材(带 pdf_id 与页码,便于填 grounding)。
+
+    分组很大时(几十章)全量骨架会让提示词爆掉,所以按章均摊一个字符预算,
+    超出的章节只保留小节标题与"必须掌握 / 难点",并注明完整内容在哪。
+    """
+    per_chapter = max(1500, budget_chars // max(1, len(pairs)))
     lines = ["# 本协议已完成章节的知识骨架", "",
              "出题只能基于下面这些内容。每条都标了 `pdf_id` 与页码,",
              "填 `grounding` 时直接用这些页码,并回到对应章节的原文复制英文句子。", ""]
+    if len(pairs) > 12:
+        lines += [f"> 本组共 {len(pairs)} 章,内容较多。为控制篇幅,单章骨架超过约 "
+                  f"{per_chapter} 字符时会被截断,",
+                  "> 截断处会注明完整内容的位置(`build/tasks/<pdf_id>/OUTPUT/note.json`),"
+                  "需要时可自行打开查看。", ""]
     for it, note in pairs:
+        start = len(lines)
         lines += [f"## {note.get('title_zh', it['title'])} ({note.get('title_en', '')})", "",
                   f"- `pdf_id`: `{it['id']}`",
                   f"- 源文件: `{it['rel_path']}`",
@@ -99,15 +160,33 @@ def _chapters_md(pairs: list[tuple[dict[str, Any], dict[str, Any]]]) -> str:
 
         lines.append("**小节与知识点**")
         lines.append("")
+        used = sum(len(x) for x in lines[start:])
+        truncated = False
         for sec in note.get("sections", []):
             pages = ", ".join(f"p.{p}" for p in sec.get("pages", []))
-            lines.append(f"- **{sec.get('heading_zh')}** ({sec.get('heading_en')}) — {pages}")
+            head = f"- **{sec.get('heading_zh')}** ({sec.get('heading_en')}) — {pages}"
+            lines.append(head)
+            used += len(head)
+            if used > per_chapter:
+                truncated = True
+                continue          # 预算用完后只保留小节标题,不再展开知识点
             for pt in sec.get("points", []):
-                lines.append(f"  - (p.{pt.get('page')}) {norm_space(pt.get('text_zh', ''))}")
-                lines.append(f"    - 原文: {norm_space(pt.get('text_en_quote', ''))}")
+                row = f"  - (p.{pt.get('page')}) {norm_space(pt.get('text_zh', ''))}"
+                quote = f"    - 原文: {norm_space(pt.get('text_en_quote', ''))}"
+                lines += [row, quote]
+                used += len(row) + len(quote)
+                if used > per_chapter:
+                    truncated = True
+                    break
             for cb in sec.get("configs", []) or []:
                 first = norm_space((cb.get("code") or "").splitlines()[0] if cb.get("code") else "")
-                lines.append(f"  - (p.{cb.get('page')}) [配置] {first}")
+                row = f"  - (p.{cb.get('page')}) [配置] {first}"
+                lines.append(row)
+                used += len(row)
+        if truncated:
+            lines += ["", f"> ⚠️ 本章骨架已按篇幅预算截断。完整内容见 "
+                      f"`build/tasks/{it['id']}/OUTPUT/note.json`,"
+                      f"原文见 `build/extract/{it['id']}/text.md`。"]
         lines.append("")
 
         fey = note.get("feynman", {}) or {}
@@ -236,7 +315,8 @@ def build_group_task(cfg: Config, group: dict[str, Any], force: bool = False) ->
 
     gdir = ensure_dir(group_dir(cfg, group["id"]))
     ensure_dir(gdir / "OUTPUT")
-    write_text(gdir / "chapters.md", _chapters_md(pairs))
+    write_text(gdir / "chapters.md",
+               _chapters_md(pairs, int(cfg["group_chapters_budget_chars"])))
     shutil.copyfile(SCHEMA_PATH, gdir / "interview.schema.json")
 
     chapters_ctx = []
@@ -393,6 +473,13 @@ def verify_interview(cfg: Config, group: dict[str, Any],
             return rep
     except ImportError:
         rep.warn("S000", "schema", "未安装 jsonschema,跳过结构校验", "pip install jsonschema")
+
+    # --- 分组键一致性 ---
+    declared = str(interview.get("group_key", "")).strip()
+    if declared and declared != group["key"]:
+        rep.err("A005", "group_key",
+                f"group_key 与实际分组不一致:写的是 “{declared}”,应为 “{group['key']}”",
+                f"改成 {group['key']}(见任务包 context.json 的 group_key)")
 
     # --- 章节范围 ---
     available = {it["id"] for it in group["items"]}
