@@ -138,11 +138,15 @@ cd D:\Python3
 .\scripts\Update.ps1 -UpgradeConfig
 ```
 
-#### 首次自助更新(本地还没有 Update.ps1 时)
+#### 首次自助更新(本地还没有 Update.ps1,或脚本一跑就报缺少 `}`)
 
 如果上面那条报 `无法将".\scripts\Update.ps1"项识别为 cmdlet`,
-说明你本地的代码还没有这个脚本 —— 脚本没法更新到"包含它自己"的版本。
-把下面**整段**粘进本机 PowerShell 跑一次,之后就能一直用脚本了:
+说明本地还没有这个脚本。
+如果报一堆 `ParserError` / `缺少右 '}'` / 中文乱码,
+说明本地**有一份旧的无 BOM 脚本**,PowerShell 5.1 按 GBK 读坏了 —— 文件在,只是不能跑。
+
+两种情况都不要改那份坏脚本。把下面**整段**粘进本机 PowerShell 跑一次,
+它会从 GitHub 拉最新代码(含带 BOM 的 `Update.ps1`),之后就能一直用脚本了:
 
 ```powershell
 cd D:\Python3
@@ -174,23 +178,35 @@ Remove-Item $t -Recurse -Force
 
 ```powershell
 [Net.ServicePointManager]::SecurityProtocol = 3072
-curl.exe --ssl-no-revoke -sSL -o "$env:TEMP
-l.zip" `
+curl.exe --ssl-no-revoke -sSL -o "$env:TEMP\nl.zip" `
   "https://github.com/FN2222/Python3/archive/refs/heads/cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip"
 ```
 
 `--ssl-no-revoke` 关掉的是**证书吊销检查**(和 git 的 `http.schannelCheckRevoke false`
 同一个道理),证书本身仍然照常校验。
 
-**出路二(最省事):浏览器下载 ZIP,然后把它交给脚本 —— 不用你手工解压**
+**出路二(最省事):浏览器下载 ZIP,再用下面这段合并 —— 不依赖本机那份坏掉的 Update.ps1**
+
+1. 浏览器打开并下载:
+   https://github.com/FN2222/Python3/archive/refs/heads/cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip
+2. 把下载的 zip 放着别解压,然后在本机 PowerShell 跑(路径按实际文件名改):
 
 ```powershell
-.\scripts\Update.ps1 -ZipPath "$env:USERPROFILE\Downloads\Python3-cursor-networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip" -UpgradeConfig
+cd D:\Python3
+$zip = "$env:USERPROFILE\Downloads\Python3-cursor-networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip"
+$t = "$env:TEMP\nl-up"
+Remove-Item $t -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory $t | Out-Null
+Expand-Archive $zip $t -Force
+$src = (Get-ChildItem $t -Directory)[0].FullName
+robocopy $src . /E /NFL /NDL /NJH /NJS /NP /XF pipeline.json selection.txt `
+  /XD build notes out .venv | Out-Null
+Remove-Item $t -Recurse -Force
+.\.venv\Scripts\python.exe -m nlnotes init --upgrade
 ```
 
-脚本会自己解压、用 robocopy 合并覆盖、补齐配置项 ——
-省掉了"手工解压 + 改文件夹名 + 拖进去覆盖"这几步最容易出错的操作。
-`Update.ps1` 自动下载失败时也会打印这条命令给你。
+你的 `config\pipeline.json`、`selection.txt`、`build\`、`notes\`、已写好的 5 章笔记都不会被动到。
+覆盖完成后再跑 `.\scripts\Update.ps1 -UpgradeConfig` 就会正常,因为新脚本带 UTF-8 BOM。
 
 下面是分情况的手工做法。先判断你当初是怎么拿到代码的:
 
