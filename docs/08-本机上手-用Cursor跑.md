@@ -561,9 +561,14 @@ Grok 4.6 能读图,但如果不明确要求,它可能只读 `figures.md` 的文�
 
 随时可以停。已经通过门禁的章节不会被重做:
 
-- `nlnotes next` 只列还没写的;
-- `nlnotes write`(如果你后来切了 API)会自动跳过已通过的;
-- `nlnotes status --detail` 显示每章处于哪个阶段。
+- `nlnotes next` 只列**还没有 note.json** 的章;
+- **已写出但未过门禁的章会被 next 跳过**(这就是第 6/7 章被 Grok 漏掉的原因)。
+  补写必须点名 id,提示词见 [`prompts/60-批量流水作业.md`](../prompts/60-批量流水作业.md) 的「补写未过门禁的章」;
+- `nlnotes write`(如果你后来切了 API)会自动跳过已通过的,失败的会重试;
+- `nlnotes status --detail` 显示每章处于哪个阶段。「已撰写」≠「已校验」。
+
+当前会话如果已经在写第 8 章:让它先把**这一章** `build` 跑完,再粘补写提示词。
+不要中途 Stop(note.json 可能写到一半),也不要新开第二个 Grok 同时跑 `next`。
 
 ---
 

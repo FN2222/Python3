@@ -178,19 +178,25 @@ def cmd_tasks(args) -> int:
 
 def cmd_next(args) -> int:
     from nlnotes.scan import select_items
-    from nlnotes.taskgen import pending_items
+    from nlnotes.taskgen import failed_written_items, pending_items
     cfg = _cfg(args)
     items = select_items(cfg, args.ids, args.filter_path, None)
     pending = pending_items(cfg, items)
+    failed = failed_written_items(cfg, items)
     batch = pending[:args.count]
 
     if args.ids_only:
         for it in batch:
             print(it["id"])
+        if failed:
+            log(f"另有 {len(failed)} 章已写出但门禁未通过,next 不会列出。"
+                f"要补写请显式指定 id,例如: "
+                + " ".join(f"--id {it['id']}" for it in failed[:5]), "warn")
         return 0
     if args.json:
         print(json.dumps({
             "pending_total": len(pending),
+            "failed_written": [{"id": it["id"], "title": it["title"]} for it in failed],
             "items": [{"id": it["id"], "title": it["title"],
                        "rel_path": it["rel_path"],
                        "task": str(cfg.task_dir(it["id"]) / "TASK.md"),
@@ -199,7 +205,20 @@ def cmd_next(args) -> int:
         }, ensure_ascii=False, indent=2))
         return 0
 
+    if failed:
+        print(f"⚠ {len(failed)} 章已写出 note.json 但门禁未通过"
+              f"(next 不会列出它们,批量会话用 next 会直接跳到后面未写的章):")
+        for it in failed[:20]:
+            print(f"  - {it['id']}  {it['title']}")
+        print("  补写请把这些 id 直接发给 Grok,或: "
+              f"python -m nlnotes write --force "
+              + " ".join(f"--id {it['id']}" for it in failed[:5]))
+        print()
+
     if not pending:
+        if failed:
+            print("没有「从未写过」的章节了。先把上面未通过的章补过门禁。")
+            return 0
         print("🎉 所有 PDF 都已产出 note.json。")
         print("下一步:build 出笔记,再用 groups / build-group 出面试复习笔记。")
         return 0

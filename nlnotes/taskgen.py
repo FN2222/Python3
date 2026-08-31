@@ -441,5 +441,23 @@ def note_path(cfg: Config, pdf_id: str) -> Path:
 
 
 def pending_items(cfg: Config, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """还没写 note.json 的 PDF。"""
+    """还没写 note.json 的 PDF。已写出但未过门禁的不算在内(避免批量会话卡在同一章)。"""
     return [it for it in items if not note_path(cfg, it["id"]).exists()]
+
+
+def failed_written_items(cfg: Config, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """已有 note.json,且校验报告明确未通过。正在写、还没有报告的不算。"""
+    out: list[dict[str, Any]] = []
+    for it in items:
+        if not note_path(cfg, it["id"]).exists():
+            continue
+        rep = cfg.report_dir() / f"{it['id']}.json"
+        if not rep.exists():
+            continue
+        try:
+            passed = bool(read_json(rep).get("passed"))
+        except Exception:
+            continue
+        if not passed:
+            out.append(it)
+    return out
