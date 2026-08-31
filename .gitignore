@@ -8,3 +8,5 @@ __pycache__/
 *.log
 tests/_tmp/
 config/pipeline.json
+config/pipeline.json.bak
+config/selection.txt

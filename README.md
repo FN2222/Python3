@@ -110,6 +110,7 @@ python -m nlnotes next          # 看下一步该写哪章
 ```powershell
 .\scripts\Run-Pipeline.ps1 -SourceRoot "D:\NetworkLessons\All-Courses-v3.0" -Install
 .\scripts\Run-Pipeline.ps1 -BuildOnly     # AI 写完 note.json 后
+.\scripts\Update.ps1 -UpgradeConfig       # 更新代码(不依赖 git)
 ```
 
 ```bash

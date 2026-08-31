@@ -126,7 +126,14 @@ git checkout cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b
 
 ### 1.1.5 以后怎么更新代码
 
-先判断你当初是怎么拿到代码的:
+**最省事的办法(推荐,不依赖 git):**
+
+```powershell
+cd D:\Python3
+.\scripts\Update.ps1 -UpgradeConfig
+```
+
+下面是分情况的手工做法。先判断你当初是怎么拿到代码的:
 
 ```powershell
 cd D:\Python3
@@ -139,7 +146,19 @@ git status
 git pull
 ```
 
-**报 `not a git repository`** → 你当初是下 ZIP 的,重新下一次并**覆盖解压**到 `D:\Python3`。
+**报 `not a git repository`,或者 `git pull` 一直报证书错误** → 用一键更新脚本
+(不依赖 git,走 Windows 证书存储,浏览器能上 GitHub 它就能下):
+
+```powershell
+cd D:\Python3
+.\scripts\Update.ps1 -UpgradeConfig
+```
+
+它会自动下载分支 ZIP、覆盖代码、并补齐配置项。加 `-ReExtract` 可以顺手重跑抽取。
+脚本会明确跳过你的东西:`config\pipeline.json`、`config\selection.txt`、
+`build\`、`notes\`、`.venv\`。
+
+脚本也下载失败的话,再退回浏览器手动下载并**覆盖解压**到 `D:\Python3`。
 
 覆盖时会发生什么(不用你手动挑文件):
 
