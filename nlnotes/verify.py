@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from nlnotes.config import REPO_ROOT, Config
-from nlnotes.evidence import SourceIndex, load_glossary
+from nlnotes.evidence import SourceIndex, TOKEN_IP, load_glossary
 from nlnotes.util import has_cjk, log, norm_space, read_json, write_json
 
 SCHEMA_PATH = REPO_ROOT / "schemas" / "note.schema.json"
@@ -355,10 +355,15 @@ def _check_tokens(note: dict[str, Any], index: SourceIndex, cfg: Config, rep: Re
         bad = index.ungrounded_tokens(str(text), whitelist)
         if bad:
             total_bad += len(bad)
+            ip_hint = ""
+            if any(TOKEN_IP.search(x) for x in bad[:8]):
+                ip_hint = ("。若这是拓扑图上的网段/IP,先写进该图 figures[].labels_seen "
+                           "(图上文字不在 PDF 文本层);图上也没有就删掉,不要把别的章的网段抄过来")
             rep.err("T001", where,
                     f"出现原文中找不到的技术词/数字: {', '.join(bad[:8])}"
                     + (" ..." if len(bad) > 8 else ""),
-                    "删除该内容,或改用原文里真实出现的说法;确属通用词请加入 token_whitelist")
+                    "删除该内容,或改用原文里真实出现的说法" + ip_hint
+                    + ";确属通用词请加入 token_whitelist")
     for i, term in enumerate(note.get("terms", []) or []):
         en = str(term.get("en", ""))
         if en and not index.contains_term(en) and not index.contains_phrase(en, 92):
