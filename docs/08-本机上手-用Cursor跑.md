@@ -5,6 +5,32 @@
 
 ---
 
+## ⚠️ 开始之前:确认你在哪台机器上
+
+本文所有命令都必须在**你本机的 Windows PowerShell** 里跑。
+如果你正在用 Cursor 的 **Cloud Agent**(云端 agent),它的终端是**远程 Linux 机器**,
+那台机器上**没有你的 D 盘**,在那里跑这些命令一定失败。
+
+怎么分辨:
+
+| 提示符长这样 | 是哪台机器 | 能不能跑本文的命令 |
+| --- | --- | --- |
+| `PS D:\>` 或 `PS C:\Users\你>` | ✅ 你本机的 Windows PowerShell | 可以 |
+| `workspace $`,或标签写着 `bash` | ❌ 云端 agent 的 Linux 终端 | **不行** |
+
+不确定就先敲一下 `pwd`:本机显示 `D:\...` 之类,云端显示 `/workspace`。
+
+**最稳的起步方式**:先不用 Cursor 的终端 —— 按 `Win` 键搜 **PowerShell** 打开,
+在里面完成下面第 1 节的克隆,然后再用 Cursor 的 `File` → `Open Folder`
+打开克隆出来的目录。这时 Cursor 窗口连的才是本机。
+
+> 另外注意:**不要把带行尾反斜杠的命令粘到 bash 里**。
+> bash 把行尾 `\` 当续行符,`cd D:\` 会把下一行吞掉,
+> 结果是 `cd: too many arguments`,而且后面的 `git clone` 根本没执行。
+> 本文已统一改成不带尾部反斜杠的写法。
+
+---
+
 ## 0. 先搞清楚谁花什么
 
 | 环节 | 谁在干 | 花什么 |
@@ -26,16 +52,19 @@
 
 ### 1.1 把仓库弄到本机
 
-在 Cursor 里打开一个终端(`Ctrl` + `` ` ``),二选一:
+打开**本机的 PowerShell**(按 `Win` 搜 PowerShell),二选一:
 
 **如果你本机还没有这个仓库:**
 
 ```powershell
-cd D:\
+cd D:
 git clone https://github.com/FN2222/Python3.git
 cd Python3
 git checkout cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b
 ```
+
+> 写成 `cd D:` 而不是 `cd D:\` 是故意的 —— 前者在 PowerShell 里同样能切到 D 盘,
+> 而且万一粘错到 bash 里也不会吞掉下一行命令。
 
 **如果本机已经有了:**
 
@@ -338,6 +367,7 @@ Grok 4.6 能读图,但如果不明确要求,它可能只读 `figures.md` 的文�
 
 | 现象 | 先看这里 |
 | --- | --- |
+| `bash: cd: too many arguments` / `cd: Python3: No such file or directory` | **跑错终端了** —— 你在云端 agent 的 bash 里,不是本机 PowerShell。见本文开头的警告 |
 | 命令报 `课程根目录不存在` | `config\pipeline.json` 的 `source_root` 是不是写了单反斜杠 |
 | 扫描到 0 个 PDF | 路径对不对;文件是不是真的 `.pdf` |
 | 大量 PDF 被 audit 剔除 | `build\audit.md` 的原因列;多半是扫描件,需要先 OCR |
