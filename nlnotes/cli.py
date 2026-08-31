@@ -682,12 +682,32 @@ def cmd_init(args) -> int:
 
 # ------------------------------------------------------------------ 解析
 
+class _Parser(argparse.ArgumentParser):
+    """参数报错时补一句版本提示。
+
+    用户拿到的往往是 ZIP 快照,很容易出现"文档里写的参数本地没有"的情况,
+    而 argparse 默认只说 unrecognized arguments,看不出是版本问题。
+    """
+
+    def error(self, message: str) -> None:      # type: ignore[override]
+        self.print_usage(sys.stderr)
+        print(f"\n{self.prog}: 参数错误: {message}", file=sys.stderr)
+        if "unrecognized" in message or "invalid choice" in message:
+            print(f"\n如果你确认拼写没错,很可能是**本地代码版本偏旧**"
+                  f"(当前 nlnotes {__version__})。\n"
+                  f"更新一次即可:见 docs/08-本机上手-用Cursor跑.md 的"
+                  f"「以后怎么更新代码」。\n"
+                  f"用 `python -m nlnotes <子命令> -h` 可以看本地实际支持哪些参数。",
+                  file=sys.stderr)
+        raise SystemExit(2)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    p = _Parser(
         prog="python -m nlnotes",
         description="NetworkLessons 英文 PDF -> 有图/有动画/有费曼测验的中文笔记")
     p.add_argument("--version", action="version", version=f"nlnotes {__version__}")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=True, parser_class=_Parser)
 
     sp = sub.add_parser("init", help="生成 config/pipeline.json;--upgrade 补齐新增配置项")
     sp.add_argument("--upgrade", action="store_true",
