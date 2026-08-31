@@ -19,7 +19,7 @@ from typing import Any
 
 from nlnotes.config import REPO_ROOT, Config
 from nlnotes.evidence import SourceIndex, glossary_hits, load_glossary
-from nlnotes.util import (ensure_dir, log, norm_space, read_json, rel_posix,
+from nlnotes.util import (copy_file, ensure_dir, log, norm_space, read_json, rel_posix,
                           write_json, write_text)
 
 SCHEMA_PATH = REPO_ROOT / "schemas" / "note.schema.json"
@@ -340,13 +340,13 @@ def build_task(cfg: Config, item: dict[str, Any], force: bool = False) -> Path:
     out_dir = ensure_dir(task_dir / "OUTPUT")
     hits = glossary_hits(index, load_glossary())
 
-    shutil.copyfile(extract_dir / "text.md", task_dir / "source-text.md")
+    copy_file(extract_dir / "text.md", task_dir / "source-text.md")
     write_text(task_dir / "figures.md", _figures_md(index, task_dir, extract_dir))
     write_text(task_dir / "glossary.md", _glossary_md(hits))
     write_text(task_dir / "codeblocks.md", _codeblocks_md(index))
     write_text(task_dir / "outline.md",
                "# 原文标题层级\n\n" + _sections_md(index) + "\n")
-    shutil.copyfile(SCHEMA_PATH, task_dir / "note.schema.json")
+    copy_file(SCHEMA_PATH, task_dir / "note.schema.json")
 
     tpl_path = task_dir / "note.template.json"
     if force or not tpl_path.exists():

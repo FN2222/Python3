@@ -64,35 +64,73 @@ def report(cfg: Config) -> str:
     dup_files = st.get("duplicate_files", 0)
     unique = st.get("unique_files", total)
 
-    lines = ["# 重复内容报告", "",
-             f"- PDF 文件总数:**{total}**",
-             f"- 内容互不相同的课程数:**{unique}**",
-             f"- 重复副本数:**{dup_files}**"
-             + (f"({dup_files / total:.0%})" if total else ""),
-             f"- 涉及的重复组数:{st.get('duplicate_groups', 0)}", ""]
+    lines = ["# 重复内容报告", ""]
 
-    if not dup_files:
-        lines += ["没有发现内容完全相同的 PDF。", ""]
+    if not st:
+        lines += ["> ⚠️ **当前的 manifest 是旧版本生成的,不含重复信息。**",
+                  "> 请先重新扫描,再看这份报告:",
+                  ">",
+                  "> ```",
+                  "> python -m nlnotes scan",
+                  "> ```", ""]
         return "\n".join(lines)
 
-    lines += ["> 只有正本会被写笔记,副本会生成一篇指向正本的短笔记占位,",
-              "> 所以 `notes/` 的目录树仍与源课程目录完整对应。", "",
-              "## 重复最多的几组", "",
-              "| 份数 | 正本 | 其他位置(最多列 5 个) |", "| --- | --- | --- |"]
-    for g in st.get("largest_groups", []):
-        others = "<br>".join(f"`{x}`" for x in g.get("others", []))
-        lines.append(f"| {g['count']} | `{g['canonical']}` | {others} |")
+    tdup = st.get("title_duplicate_files", 0)
+    lines += [f"- PDF 文件总数:**{total}**", "",
+              "## 一、内容完全相同(SHA-256 一致)", "",
+              f"- 重复副本数:**{dup_files}**"
+              + (f"({dup_files / total:.0%})" if total else ""),
+              f"- 涉及的重复组数:{st.get('duplicate_groups', 0)}",
+              f"- 扣掉副本后的课程数:**{unique}**", ""]
 
-    lines += ["", "## 按一级方向统计副本数", ""]
-    from collections import Counter
-    by_cat: Counter[str] = Counter()
-    for it in data["duplicates"]:
-        by_cat[it["course_path"][0] if it["course_path"] else "(根目录)"] += 1
-    lines += ["| 一级方向 | 副本数 |", "| --- | --- |"]
-    for cat, n in by_cat.most_common():
-        lines.append(f"| {cat} | {n} |")
-    lines += ["", f"**结论:实际需要撰写的章节数是 {unique},而不是 {total}。**",
-              f"按这个数量估算成本与工期。", ""]
+    if not dup_files:
+        lines += ["没有发现字节完全相同的 PDF。",
+                  "",
+                  "> 这**不代表没有重复**。交叉归档时文件常被重新导出",
+                  "> (PDF 元数据、时间戳不同),字节哈希抓不到,但内容是同一节课。",
+                  "> 看下面的第二节。", ""]
+
+    else:
+        lines += ["> 只有正本会被写笔记,副本会生成一篇指向正本的短笔记占位,",
+                  "> 所以 `notes/` 的目录树仍与源课程目录完整对应。", "",
+                  "重复最多的几组:", "",
+                  "| 份数 | 正本 | 其他位置(最多列 5 个) |", "| --- | --- | --- |"]
+        for g in st.get("largest_groups", []):
+            others = "<br>".join(f"`{x}`" for x in g.get("others", []))
+            lines.append(f"| {g['count']} | `{g['canonical']}` | {others} |")
+        lines.append("")
+
+    # ---------------- 标题层面的近似重复 ----------------
+    lines += ["## 二、标题相同(很可能是同一节课被重新导出)", "",
+              f"- 标题重复的文件数:**{tdup}**"
+              + (f"({tdup / total:.0%})" if total else ""),
+              f"- 涉及的标题组数:{st.get('title_duplicate_groups', 0)}",
+              f"- 两种重复都扣掉后的课程数:**{st.get('unique_by_title', unique)}**", ""]
+    if tdup:
+        lines += ["> 这类默认**只报告、不跳过**(标题相同也可能是不同版本的课程)。",
+                  "> 确认确实重复后,把 config 的 `skip_title_duplicates` 设为 `true`,",
+                  "> 后续阶段就会只处理每组的第一个。", "",
+                  "标题重复最多的几组:", "",
+                  "| 份数 | 标题 | 出现位置(最多列 6 个) |", "| --- | --- | --- |"]
+        for g in st.get("largest_title_groups", []):
+            paths = "<br>".join(f"`{x}`" for x in g.get("paths", []))
+            lines.append(f"| {g['count']} | {g['title'][:60]} | {paths} |")
+        lines.append("")
+    else:
+        lines += ["没有发现标题重复的 PDF。", ""]
+
+    # ---------------- 结论 ----------------
+    real = st.get("unique_by_title", unique)
+    lines += ["## 三、结论", "",
+              f"- 只扣字节完全相同的:需要撰写 **{unique}** 章",
+              f"- 连标题重复也扣掉:需要撰写 **{real}** 章",
+              "",
+              f"估算成本与工期时用这两个数,不要用文件总数 {total}。", "",
+              "> 想进一步缩小范围,用**选课清单**只挑你要的方向:", "",
+              "> ```",
+              "> python -m nlnotes select --init     # 按课程库生成模板",
+              "> python -m nlnotes select --list     # 预览命中情况",
+              "> ```", ""]
     return "\n".join(lines)
 
 

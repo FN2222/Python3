@@ -16,7 +16,8 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from nlnotes import __version__
 from nlnotes.config import REPO_ROOT, Config
 from nlnotes.evidence import SourceIndex
-from nlnotes.util import ensure_dir, log, read_json, rel_posix, write_text
+from nlnotes.util import (copy_file, ensure_dir, log, read_json, rel_posix,
+                          sys_path, write_text)
 from nlnotes.visuals import render_all
 
 TEMPLATE_DIR = REPO_ROOT / "templates"
@@ -139,7 +140,7 @@ def _collect_figure_assets(note: dict[str, Any], index: SourceIndex,
             dst = assets_dir / meta["file"]
             if src.exists():
                 ensure_dir(assets_dir)
-                shutil.copyfile(src, dst)
+                copy_file(src, dst)
             out[fid] = {"path": rel_posix(dst, note_dir), "page": meta["page"],
                         "file": meta["file"]}
     return out
@@ -165,7 +166,7 @@ def _collect_visual_assets(note: dict[str, Any], rendered: dict[str, dict[str, A
                 if isinstance(src, Path) and src.exists():
                     ensure_dir(assets_dir)
                     dst = assets_dir / src.name
-                    shutil.copyfile(src, dst)
+                    copy_file(src, dst)
                     entry[key] = rel_posix(dst, note_dir)
             if res.get("inline"):
                 entry["inline"] = res["inline"]
@@ -193,7 +194,7 @@ def assemble_one(cfg: Config, item: dict[str, Any], verified: bool = False,
     note_dir = ensure_dir(md_path.parent)
     assets_dir = note_dir / cfg["assets_dirname"] / pdf_id
     if assets_dir.exists():
-        shutil.rmtree(assets_dir)
+        shutil.rmtree(sys_path(assets_dir), ignore_errors=True)
 
     rendered = render_all(cfg, note, cfg.visual_dir(pdf_id))
     figure_assets = _collect_figure_assets(note, index, cfg.extract_dir(pdf_id),

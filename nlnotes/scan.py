@@ -5,12 +5,13 @@
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 from nlnotes.config import Config
-from nlnotes.util import (file_sha256, log, pdf_id_for, read_json, slugify,
-                          write_json)
+from nlnotes.util import (file_sha256, log, path_too_long, pdf_id_for,
+                          read_json, slugify, sys_path, write_json)
 
 SKIP_DIR_NAMES = {".git", "__pycache__", ".idea", ".vscode", "$RECYCLE.BIN",
                   "System Volume Information", ".Trash", "node_modules"}
@@ -55,6 +56,7 @@ def scan(cfg: Config, force: bool = False) -> dict[str, Any]:
         pdf_paths.append(p)
 
     seen_ids: set[str] = set()
+    long_paths: list[str] = []
     for p in pdf_paths:
         rel = p.relative_to(root).as_posix()
         pid = pdf_id_for(rel)
@@ -62,7 +64,13 @@ def scan(cfg: Config, force: bool = False) -> dict[str, Any]:
             pid += "x"
         seen_ids.add(pid)
 
-        stat = p.stat()
+        if path_too_long(p):
+            long_paths.append(str(p))
+        try:
+            stat = os.stat(sys_path(p))
+        except OSError as exc:
+            log(f"跳过无法读取的文件({exc}): {p}", "warn")
+            continue
         prev = previous.get(pid)
         if prev and prev.get("size") == stat.st_size and abs(prev.get("mtime", 0) - stat.st_mtime) < 1:
             sha = prev.get("sha256", "")     # 大小与时间都没变,复用哈希省时间
@@ -87,6 +95,11 @@ def scan(cfg: Config, force: bool = False) -> dict[str, Any]:
             if course_path else f"{slugify(p.stem, 80)}.md",
         })
 
+    if long_paths:
+        log(f"有 {len(long_paths)} 个文件的路径超过 Windows 的 260 字符上限,"
+            f"已用长路径模式处理(例如 {Path(long_paths[0]).name})。"
+            f"建议同时开启 Windows 的长路径支持,见 docs/05-常见问题.md", "warn")
+
     dup_stats = _mark_duplicates(items)
 
     manifest = {
@@ -95,6 +108,7 @@ def scan(cfg: Config, force: bool = False) -> dict[str, Any]:
         "count": len(items),
         "categories": sorted({it["course_path"][0] for it in items if it["course_path"]}),
         "duplicates": dup_stats,
+        "long_path_count": len(long_paths),
         "items": items,
     }
     write_json(cfg.manifest_path, manifest)
@@ -132,10 +146,44 @@ def _mark_duplicates(items: list[dict[str, Any]]) -> dict[str, Any]:
             other["dup_of"] = canonical["id"]
             dup_files += 1
 
+    # ---- 标题层面的近似重复 ----
+    # 交叉归档时文件常被重新导出(PDF 元数据/时间戳不同),字节哈希抓不到,
+    # 但文件名去掉序号前缀后是同一节课。这类只报告,默认不跳过。
+    import re as _re
+    by_title: dict[str, list[dict[str, Any]]] = {}
+    for it in items:
+        key = _re.sub(r"^\s*\d{1,4}\s*[-.)]?\s*", "", it["file_stem"])
+        key = _re.sub(r"\s+", " ", key).strip().lower()
+        if key:
+            by_title.setdefault(key, []).append(it)
+
+    title_groups = 0
+    title_dups = 0
+    for _key, group in by_title.items():
+        for it in group:
+            it["title_dup_of"] = None
+            it["title_dup_count"] = len(group)
+        if len(group) < 2:
+            continue
+        title_groups += 1
+        group.sort(key=lambda x: x["rel_path"])
+        for other in group[1:]:
+            if not other.get("dup_of"):        # 已被字节哈希判为副本的不重复计
+                other["title_dup_of"] = group[0]["id"]
+                title_dups += 1
+
     return {
         "duplicate_groups": dup_groups,
         "duplicate_files": dup_files,
         "unique_files": len(items) - dup_files,
+        "title_duplicate_groups": title_groups,
+        "title_duplicate_files": title_dups,
+        "unique_by_title": len(items) - dup_files - title_dups,
+        "largest_title_groups": sorted(
+            ({"title": k, "count": len(g),
+              "paths": [x["rel_path"] for x in g[:6]]}
+             for k, g in by_title.items() if len(g) > 1),
+            key=lambda x: -x["count"])[:15],
         "largest_groups": sorted(
             ({"sha256": sha[:12], "count": len(g),
               "canonical": g[0]["rel_path"],
@@ -172,6 +220,10 @@ def select_items(cfg: Config, ids: list[str] | None = None,
         key = filter_path.replace("\\", "/").lower()
         items = [it for it in items if key in it["rel_path"].lower()]
 
+    if not ids:
+        from nlnotes import selection
+        items = selection.apply(cfg, items)
+
     if cfg.get("respect_audit_exclusions") and not include_excluded and not ids:
         from nlnotes.audit import excluded_ids
         dropped = excluded_ids(cfg)
@@ -188,6 +240,13 @@ def select_items(cfg: Config, ids: list[str] | None = None,
         if before != len(items):
             log(f"已跳过内容完全相同的 {before - len(items)} 个副本 PDF"
                 f"(同一节课被交叉归档到多个认证方向;详见 nlnotes dups)")
+
+    if cfg.get("skip_title_duplicates") and not include_excluded and not ids:
+        before = len(items)
+        items = [it for it in items if not it.get("title_dup_of")]
+        if before != len(items):
+            log(f"已跳过标题重复的 {before - len(items)} 个 PDF"
+                f"(字节不同但很可能是同一节课;详见 nlnotes dups)")
 
     if limit:
         items = items[:limit]

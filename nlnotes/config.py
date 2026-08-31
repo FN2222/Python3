@@ -134,6 +134,15 @@ DEFAULTS: dict[str, Any] = {
     # 所以文件总数远大于实际课程数。同一份内容写两遍笔记既浪费额度又没意义,
     # 所以默认只给"正本"写笔记,副本用一篇指向正本的短笔记占位(nlnotes dups)。
     "skip_duplicate_content": True,
+    # 交叉归档时文件常被重新导出,字节不同但内容相同。按"标题"识别这类近似重复,
+    # 默认只报告不跳过(标题相同也可能确实是不同版本,交由你决定)。
+    "report_title_duplicates": True,
+    "skip_title_duplicates": False,
+
+    # ---------- 选课清单 ----------
+    # 只对清单里列出的课程做笔记,避免每条命令都写一长串 --path。
+    # 用 `nlnotes select --init` 按你的课程库生成模板,`--list` 预览命中情况。
+    "selection_file": "config/selection.txt",
 
     # ---------- AI 自动撰写(write) ----------
     # 兼容 OpenAI Chat Completions 协议的任何服务:DeepSeek / 通义 / 智谱 / Kimi /

@@ -27,7 +27,7 @@ except ImportError:
 
 from nlnotes.config import Config
 from nlnotes.scan import load_manifest
-from nlnotes.util import log, read_json, write_json, write_text
+from nlnotes.util import log, read_bytes, read_json, write_json, write_text
 
 # CID 未映射、替换符、控制字符 —— 提取出这些说明字体没有可用的 ToUnicode 映射
 GARBLED = re.compile(r"[\ufffd\u0000-\u0008\u000b\u000c\u000e-\u001f]|\(cid:\d+\)")
@@ -45,7 +45,7 @@ def _analyze(path: Path, cfg: Config) -> dict[str, Any]:
         "latin_ratio": 0.0, "verdict": VERDICT_OK, "reasons": [], "hints": [],
     }
     try:
-        doc = fitz.open(path)
+        doc = fitz.open(stream=read_bytes(path), filetype="pdf")
     except Exception as exc:
         res["verdict"] = VERDICT_DROP
         res["reasons"].append(f"无法打开(文件可能损坏): {exc}")

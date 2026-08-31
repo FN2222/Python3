@@ -24,7 +24,8 @@ except ImportError:      # pymupdf < 1.24 只暴露 fitz
     import fitz
 
 from nlnotes.config import Config
-from nlnotes.util import ensure_dir, log, norm_space, write_json, write_text
+from nlnotes.util import (ensure_dir, log, norm_space, read_bytes, write_bytes,
+                          write_json, write_text)
 
 CAPTION_CUE = re.compile(
     r"^\s*(figure|fig\.?|diagram|topology|table|image|example|picture|图)\s*[\d\-:.]*",
@@ -308,7 +309,7 @@ def _raster_figures(doc: "fitz.Document", page: "fitz.Page", pno: int,
 
         fid = f"fig-p{pno:03d}-{idx}"
         fname = f"{fid}.{'jpg' if ext in ('jpg', 'jpeg') else ext}"
-        (out_dir / fname).write_bytes(data)
+        write_bytes(out_dir / fname, data)
         seen.add(digest)
 
         caption, heading, ctx = _caption_and_context(lines, bbox, cfg)
@@ -478,7 +479,7 @@ def _vector_figures(page: "fitz.Page", pno: int, lines: list[dict[str, Any]],
         idx += 1
         fid = f"fig-p{pno:03d}-v{idx}"
         fname = f"{fid}.png"
-        (out_dir / fname).write_bytes(data)
+        write_bytes(out_dir / fname, data)
         seen.add(digest)
         caption, heading, ctx = _caption_and_context(lines, list(clip), cfg)
         figs.append({
@@ -506,7 +507,8 @@ def extract_one(cfg: Config, item: dict[str, Any], force: bool = False) -> dict[
     for old in fig_dir.glob("*"):
         old.unlink()
 
-    doc = fitz.open(item["abs_path"])
+    # 用 stream 打开而不是传路径:彻底绕开 Windows 的 MAX_PATH 限制
+    doc = fitz.open(stream=read_bytes(item["abs_path"]), filetype="pdf")
     noise = NoiseFilter(cfg)
     try:
         all_lines = [_page_lines(p, noise) for p in doc]

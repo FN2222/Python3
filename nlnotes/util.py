@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -21,27 +22,70 @@ def log(msg: str, level: str = "info") -> None:
 
 # ---------------------------------------------------------------- JSON
 
+def sys_path(path: str | Path) -> str:
+    """把路径转成"操作系统调用安全"的字符串。
+
+    Windows 默认有 260 字符的 MAX_PATH 限制,而真实课程库的目录很深
+    (`Cisco\\CCIE Enterprise Infrastructure\\Unit 4 ...\\4.2.c IPv6 ...` 这种
+    轻松超过 260),会直接报 `[WinError 3] 系统找不到指定的路径`。
+    加上 `\\\\?\\` 前缀即可绕过该限制(要求是绝对路径且不含 . 与 ..)。
+    非 Windows 平台原样返回。
+    """
+    s = str(path)
+    if os.name != "nt":
+        return s
+    if s.startswith("\\\\?\\"):
+        return s
+    ap = os.path.abspath(s)
+    if len(ap) < 200:                 # 常规长度不加前缀,避免影响其他工具
+        return ap
+    if ap.startswith("\\\\"):         # UNC 网络路径
+        return "\\\\?\\UNC\\" + ap[2:]
+    return "\\\\?\\" + ap
+
+
+def path_too_long(path: str | Path, limit: int = 250) -> bool:
+    return os.name == "nt" and len(os.path.abspath(str(path))) > limit
+
+
 def read_json(path: str | Path, default: Any = None) -> Any:
     p = Path(path)
     if not p.exists():
         if default is not None:
             return default
         raise FileNotFoundError(f"文件不存在: {p}")
-    return json.loads(p.read_text(encoding="utf-8-sig"))
+    return json.loads(read_bytes(p).decode("utf-8-sig"))
 
 
 def write_json(path: str | Path, data: Any) -> Path:
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return p
+    return write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
 def write_text(path: str | Path, text: str) -> Path:
     p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text, encoding="utf-8")
+    ensure_dir(p.parent)
+    with open(sys_path(p), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
     return p
+
+
+def write_bytes(path: str | Path, data: bytes) -> Path:
+    p = Path(path)
+    ensure_dir(p.parent)
+    with open(sys_path(p), "wb") as fh:
+        fh.write(data)
+    return p
+
+
+def read_bytes(path: str | Path) -> bytes:
+    with open(sys_path(path), "rb") as fh:
+        return fh.read()
+
+
+def copy_file(src: str | Path, dst: str | Path) -> None:
+    """长路径安全的文件复制(shutil.copyfile 在 Windows 上会踩 MAX_PATH)。"""
+    ensure_dir(Path(dst).parent)
+    write_bytes(dst, read_bytes(src))
 
 
 # ---------------------------------------------------------------- 标识与哈希
@@ -61,7 +105,7 @@ def short_hash(text: str, n: int = 8) -> str:
 
 def file_sha256(path: str | Path, chunk: int = 1 << 20) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as fh:
+    with open(sys_path(path), "rb") as fh:
         while True:
             block = fh.read(chunk)
             if not block:
@@ -106,7 +150,7 @@ def has_cjk(text: str) -> bool:
 
 def ensure_dir(path: str | Path) -> Path:
     p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
+    os.makedirs(sys_path(p), exist_ok=True)
     return p
 
 

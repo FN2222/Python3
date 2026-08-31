@@ -91,11 +91,15 @@ def main() -> int:
     dstats = manifest.get("duplicates") or {}
     check(dstats.get("duplicate_files") == 1,
           f"识别出 1 个内容重复的副本(实际 {dstats.get('duplicate_files')})")
+    check("title_duplicate_files" in dstats, "同时统计了标题层面的近似重复")
+    check("long_path_count" in manifest, "记录了超长路径数量")
     check(dstats.get("unique_files") == expected - 1, "唯一课程数扣掉了副本")
     dup_items = [i for i in manifest["items"] if i.get("dup_of")]
     check(len(dup_items) == 1 and dup_items[0]["dup_of"], "副本正确指向了正本")
     proc = run(["dups", *COMMON])
-    check("实际需要撰写的章节数" in proc.stdout, "dups 给出了实际需撰写的章节数")
+    check("需要撰写" in proc.stdout and "不要用文件总数" in proc.stdout,
+          "dups 给出了实际需撰写的章节数")
+    check("标题相同" in proc.stdout, "dups 同时报告标题层面的近似重复")
     check((BUILD / "duplicates.md").exists(), "生成重复内容报告")
 
     good = next(i for i in manifest["items"]
@@ -384,6 +388,32 @@ def main() -> int:
         check(not r["passed"], f"面试笔记拦住「{desc}」(错误码 {codes})")
 
     # ---------------------------------------------------------------- 7
+    print("\n[7.4/8] 选课清单:只做指定方向")
+    sel = ROOT / "config" / "selection.txt"
+    sel_backup = sel.read_text(encoding="utf-8") if sel.exists() else None
+    try:
+        sel.parent.mkdir(parents=True, exist_ok=True)
+        sel.write_text("# e2e 测试清单\nCisco/CCIE Enterprise\n!*Lesson 7*\n",
+                       encoding="utf-8")
+        proc = run(["select", *COMMON])
+        check("清单命中" in proc.stdout, "select --list 能预览命中情况")
+        import re as _re
+        m = _re.search(r"清单命中:\*\*(\d+)\*\*", proc.stdout)
+        hit = int(m.group(1)) if m else -1
+        check(0 < hit < manifest["count"], f"清单确实缩小了范围(命中 {hit}/{manifest['count']})")
+        proc = run(["extract", *COMMON])
+        check("选课清单生效" in proc.stdout, "其他命令自动遵守选课清单")
+        check("Lesson 7" not in proc.stdout, "排除规则生效")
+        proc = run(["select", "--init", "--force", *COMMON])
+        check("已生成清单模板" in proc.stdout or sel.exists(), "select --init 能按课程库生成模板")
+    finally:
+        if sel_backup is None:
+            sel.unlink(missing_ok=True)
+        else:
+            sel.write_text(sel_backup, encoding="utf-8")
+    # 清单撤销后重新抽取,保证后续步骤数据完整
+    run(["extract", *COMMON])
+
     print("\n[7.5/8] 副本笔记指向正本")
     run(["dups", "--write-pointers", *COMMON])
     dup_md = NOTES / dup_items[0]["note_rel_path"]

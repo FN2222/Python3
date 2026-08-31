@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -72,6 +73,33 @@ def cmd_doctor(args) -> int:
     if not font:
         print("  -> 在 config/pipeline.json 设置 font_path,例如 C:/Windows/Fonts/msyh.ttc")
         ok = False
+
+    if os.name == "nt":
+        from nlnotes.util import path_too_long
+        try:
+            from nlnotes.scan import load_manifest
+            longs = [it["rel_path"] for it in load_manifest(cfg)["items"]
+                     if path_too_long(it["abs_path"])]
+        except Exception:
+            longs = []
+        if longs:
+            print(f"\n长路径      : ⚠️ 有 {len(longs)} 个文件的完整路径超过 Windows 260 字符上限")
+            print(f"  例如: {longs[0][:110]}")
+            print("  -> 工具内部已用长路径模式处理,但建议同时开启系统长路径支持:")
+            print('     以管理员身份运行 PowerShell,执行:')
+            print('     New-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem" '
+                  '-Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force')
+        else:
+            print("\n长路径      : ✅ 没有超长路径")
+
+    from nlnotes import selection
+    sel_path = selection.selection_path(cfg)
+    includes, excludes = selection.load_rules(cfg)
+    if includes or excludes:
+        print(f"选课清单    : {sel_path}(包含 {len(includes)} 条 / 排除 {len(excludes)} 条)"
+              f" -> 用 `select --list` 预览命中情况")
+    else:
+        print(f"选课清单    : 未启用(处理全部课程)。用 `select --init` 生成清单只做指定方向")
 
     provider = str(cfg["illustration_provider"])
     print(f"AI 示意图     : provider={provider}"
@@ -228,6 +256,23 @@ def cmd_status(args) -> int:
         print()
         for st, pid, cat, title in rows:
             print(f"  [{st:<6}] {pid}  {cat} / {title}")
+    return 0
+
+
+def cmd_select(args) -> int:
+    from nlnotes import selection
+    cfg = _cfg(args)
+    if args.init:
+        selection.init_file(cfg, force=args.force)
+        print(f"\n请编辑 {selection.selection_path(cfg)},取消你想做的方向前面的 #,")
+        print("然后用 python -m nlnotes select --list 预览命中情况。")
+        return 0
+    text = selection.preview(cfg)
+    print(text)
+    from nlnotes.util import write_text
+    out = cfg.build_dir / "selection-preview.md"
+    write_text(out, text)
+    print(f"预览已写入: {out}")
     return 0
 
 
@@ -545,6 +590,13 @@ def build_parser() -> argparse.ArgumentParser:
     _common(sp)
     _select(sp)
     sp.set_defaults(func=cmd_audit)
+
+    sp = sub.add_parser("select", help="选课清单:指定只对哪些课程做笔记")
+    _common(sp)
+    sp.add_argument("--init", action="store_true", help="按课程库生成清单模板")
+    sp.add_argument("--list", action="store_true", help="预览清单命中了哪些课程(默认行为)")
+    sp.add_argument("--force", action="store_true", help="配合 --init 覆盖已有清单")
+    sp.set_defaults(func=cmd_select)
 
     sp = sub.add_parser("dups", help="重复内容报告:哪些 PDF 内容完全相同,实际要写多少章")
     _common(sp)
