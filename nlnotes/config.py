@@ -169,7 +169,9 @@ DEFAULTS: dict[str, Any] = {
 
     # ---------- AI 自动撰写(write) ----------
     # 兼容 OpenAI Chat Completions 协议的任何服务:DeepSeek / 通义 / 智谱 / Kimi /
-    # OpenRouter / 本地 vLLM、Ollama 等。留空 base_url 则默认 OpenAI 官方。
+    # OpenRouter / Google Gemini(OpenAI 兼容端点) / 本地 vLLM、Ollama 等。
+    # 留空 base_url 则默认 OpenAI 官方。
+    # Cursor 里的 Grok 4.6 没有可填写的 API Key,请用会话批量写(docs/08),不要填这项。
     "writer_base_url": "https://api.deepseek.com/v1",
     "writer_model": "deepseek-chat",
     "writer_api_key_env": "NLNOTES_API_KEY",

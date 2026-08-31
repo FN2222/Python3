@@ -74,6 +74,11 @@ python tests/run_e2e.py                   # 端到端自测,期望 ✅ 全部自
 ```
 
 **只有 `write` / `write-group` 会调用外部模型(花钱),其余全是本地代码。**
+`write` 需要环境变量 `NLNOTES_API_KEY`(真实 Key,不是 `test-key-1234`)。
+Cursor 里的 Grok 4.6 **没有可填写的 Key**,用法是会话批量写,见
+[`docs/08-本机上手-用Cursor跑.md`](docs/08-本机上手-用Cursor跑.md);
+买 Key / 用 Gemini 的步骤见 [`docs/05-常见问题.md`](docs/05-常见问题.md)
+「购买与使用 API Key」。
 
 ## 接到"写某一章笔记"的任务时
 

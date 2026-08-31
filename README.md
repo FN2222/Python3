@@ -72,7 +72,7 @@ python -m nlnotes prepare --path OSPF --limit 3
 ### 方式 A:全自动跑完(推荐,不需要人盯着)
 
 ```powershell
-$env:NLNOTES_API_KEY = "你的key"     # 配置见 config 的 writer_base_url / writer_model
+$env:NLNOTES_API_KEY = "你的key"     # 怎么买、Gemini / Cursor Grok 能不能用:见 docs/05-常见问题.md
 
 python -m nlnotes write --dry-run                # 先估成本,不发请求
 python -m nlnotes write --path OSPF --limit 3    # 小批试跑

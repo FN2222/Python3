@@ -126,6 +126,24 @@ def cmd_doctor(args) -> int:
     provider = str(cfg["illustration_provider"])
     print(f"AI 示意图     : provider={provider}"
           + ("(未启用,packet_flow/mermaid 已足够用)" if provider == "none" else ""))
+
+    env_name = str(cfg["writer_api_key_env"])
+    key_set = bool(os.environ.get(env_name, "").strip())
+    base = str(cfg["writer_base_url"]).rstrip("/")
+    print(f"\n撰写模型      : {cfg['writer_model']}  @ {base}")
+    print(f"API Key       : 环境变量 {env_name} "
+          + ("✅ 已设置" if key_set else "➖ 未设置"))
+    if not key_set:
+        print("  -> 全自动 `nlnotes write` 需要真实 Key(不是 test-key-1234)。")
+        print("     买 Key / 用 Gemini / 用 Cursor Grok 4.6 的说明:")
+        print("     docs/05-常见问题.md 的「购买与使用 API Key」")
+        print("  -> 不想买 Key:在 Cursor 里用 Grok 4.6 会话写,见 docs/08-本机上手-用Cursor跑.md")
+    if "generativelanguage.googleapis.com" in base:
+        print("  -> 当前指向 Gemini OpenAI 兼容端点。Key 必须来自 Google AI Studio,")
+        print("     不是 Gemini App / Gemini Advanced 订阅。模型名以 AI Studio 为准。")
+    if "api.deepseek.com" in base and key_set:
+        print("  -> 设好 Key 后先跑 `python -m nlnotes write --probe` 确认能连上再全量写。")
+
     print("\n" + ("✅ 环境就绪" if ok else "⚠️ 存在问题,请按上面的提示处理"))
     return 0 if ok else 1
 
