@@ -368,17 +368,26 @@ def cmd_groups(args) -> int:
             ], ensure_ascii=False, indent=2))
             return 0
         mode = str(cfg.get("group_mode", "auto")).lower()
-        how = (f"自适应聚合,每组至少 {cfg['group_min_chapters']} 章" if mode == "auto"
-               else (f"按第 {cfg['group_depth']} 层目录聚合" if int(cfg["group_depth"]) > 0
-                     else "按最后一层目录聚合"))
+        if mode == "selection":
+            how = "按选课清单的每条包含规则分组 —— 一条规则出一份面试复习笔记"
+        elif mode == "auto":
+            how = f"自适应聚合,每组至少 {cfg['group_min_chapters']} 章"
+        elif int(cfg["group_depth"]) > 0:
+            how = f"按第 {cfg['group_depth']} 层目录聚合"
+        else:
+            how = "按最后一层目录聚合"
         print(f"共 {len(picked)} 个分组({how}):\n")
         for g in sorted(picked, key=lambda x: -len(x["items"])):
             done = len(chapter_notes(cfg, g))
             print(f"- {g['key']}  (id: {g['id']})")
             print(f"    章节: {len(g['items'])} 个,已完成笔记: {done} 个"
                   f"{'  ✅ 可生成面试复习' if done else '  ⚠️ 先完成章节笔记'}")
-        print(f"\n说明:分组数 = 最终会产出多少份面试复习笔记。"
-              f"觉得切得太碎就调大 group_min_chapters,太粗就调小。")
+        print(f"\n说明:分组数 = 最终会产出多少份面试复习笔记。")
+        if mode == "selection":
+            print("      想改分组粒度,直接改选课清单的规则即可。")
+        elif mode == "auto":
+            print("      切得太碎就调大 group_min_chapters,太粗就调小;")
+            print("      想让一个协议只出一份,把 group_mode 改成 selection。")
         return 0
     made = 0
     for g in picked:

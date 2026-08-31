@@ -125,7 +125,12 @@ DEFAULTS: dict[str, Any] = {
     # (比如某个叶子目录只有 3 章)。所以默认用 auto:从叶子目录开始向上合并,
     # 直到这一组的章节数达到 group_min_chapters,这样每份面试复习笔记的素材都够。
     # 想手工控制就把 group_mode 改成 "depth",再用 group_depth 指定层数。
-    "group_mode": "auto",               # "auto" | "depth"
+    # "selection" —— 按选课清单的每一条包含规则分组。你按协议选课(一次 OSPF、
+    #                 一次 BGP),就正好一个协议出一份面试复习笔记,不受目录深度影响。
+    #                 **这是"整个 OSPF 后面跟一份面试笔记"这种需求的推荐值。**
+    # "auto"      —— 从叶子目录向上合并到至少 group_min_chapters 章
+    # "depth"     —— 固定按第 group_depth 层目录
+    "group_mode": "auto",               # "selection" | "auto" | "depth"
     "group_min_chapters": 6,            # auto 模式下每组至少要有多少章
     "group_depth": 0,                   # depth 模式:<=0 表示取最后一层目录
     # 分组很大时,chapters.md 会很长。给它一个字符预算,超了就按章均摊裁剪。

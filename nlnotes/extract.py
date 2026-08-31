@@ -614,14 +614,16 @@ def _vector_figures(page: "fitz.Page", pno: int, lines: list[dict[str, Any]],
 
 # --------------------------------------------------------------------------- 主流程
 
-def extract_one(cfg: Config, item: dict[str, Any], force: bool = False) -> dict[str, Any]:
+def extract_one(cfg: Config, item: dict[str, Any], force: bool = False,
+                progress: tuple[int, int] | None = None) -> dict[str, Any]:
+    tag = f"[{progress[0]}/{progress[1]}] " if progress else ""
     out_dir = ensure_dir(cfg.extract_dir(item["id"]))
     meta_path = out_dir / "extract.json"
     if meta_path.exists() and not force:
         from nlnotes.util import read_json
         prev = read_json(meta_path)
         if prev.get("sha256") == item.get("sha256"):
-            log(f"跳过(已抽取): {item['rel_path']}")
+            log(f"{tag}跳过(已抽取): {item['rel_path']}")
             return prev
 
     fig_dir = ensure_dir(out_dir / "figures")
@@ -690,7 +692,7 @@ def extract_one(cfg: Config, item: dict[str, Any], force: bool = False) -> dict[
     write_text(out_dir / "text.md", render_source_text(item, pages))
     write_json(meta_path, meta)
 
-    log(f"抽取完成: {item['rel_path']} — {meta['pages_total']} 页 / "
+    log(f"{tag}抽取完成: {item['rel_path']} — {meta['pages_total']} 页 / "
         f"{meta['figure_count']} 图 / {meta['codeblock_count']} 代码块", "ok")
     return meta
 
@@ -712,11 +714,22 @@ def render_source_text(item: dict[str, Any], pages: list[dict[str, Any]]) -> str
     return "\n".join(lines) + "\n"
 
 
-def extract_many(cfg: Config, items: list[dict[str, Any]], force: bool = False) -> list[dict[str, Any]]:
-    metas = []
-    for it in items:
+def extract_many(cfg: Config, items: list[dict[str, Any]],
+                 force: bool = False) -> list[dict[str, Any]]:
+    import time as _time
+    metas: list[dict[str, Any]] = []
+    total = len(items)
+    started = _time.time()
+    for i, it in enumerate(items, start=1):
         try:
-            metas.append(extract_one(cfg, it, force=force))
+            metas.append(extract_one(cfg, it, force=force, progress=(i, total)))
         except Exception as exc:            # 单个 PDF 失败不影响整体批处理
-            log(f"抽取失败 {it['rel_path']}: {exc}", "error")
+            log(f"[{i}/{total}] 抽取失败 {it['rel_path']}: {exc}", "error")
+        # 大批量时给个进度与预计剩余时间(开了 OCR 会明显变慢)
+        if total >= 30 and (i % 25 == 0 or i == total):
+            spent = _time.time() - started
+            rate = spent / max(1, i)
+            left = rate * (total - i)
+            log(f"进度 {i}/{total}(已用 {spent / 60:.1f} 分钟,"
+                f"预计还需 {left / 60:.1f} 分钟)")
     return metas

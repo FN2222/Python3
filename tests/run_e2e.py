@@ -473,6 +473,28 @@ def main() -> int:
         proc = run(["select", *COMMON])
         m3 = _re2.search(r"清单命中:\*\*(\d+)\*\*", proc.stdout)
         check(m3 and int(m3.group(1)) > 0, "写成 `*Routing*` 才匹配任意层级")
+
+        # group_mode=selection:一条包含规则出一份面试复习笔记
+        sel.write_text("*1.2.a OSPF basics*\n*1.3 Switching*\n", encoding="utf-8")
+        sel_cfg = TMP / "selection-group-config.json"
+        base2 = json.loads((ROOT / "config" / "pipeline.example.json")
+                           .read_text(encoding="utf-8"))
+        base2.update({"group_mode": "selection", "source_root": str(SRC),
+                      "build_dir": str(BUILD), "notes_dir": str(NOTES)})
+        sel_cfg.write_text(json.dumps(base2, ensure_ascii=False, indent=2),
+                           encoding="utf-8")
+        proc = run(["groups", "--list", "--json", "--config", str(sel_cfg)])
+        ginfo = json.loads(proc.stdout)
+        check(len(ginfo) == 2,
+              f"group_mode=selection 时每条规则各成一组(实际 {len(ginfo)} 组)")
+        check(all(g["chapters"] > 0 for g in ginfo), "每组都有章节")
+        # 同样的清单换成 auto 会因为章节太少而合并
+        base2["group_mode"] = "auto"
+        sel_cfg.write_text(json.dumps(base2, ensure_ascii=False, indent=2),
+                           encoding="utf-8")
+        proc = run(["groups", "--list", "--json", "--config", str(sel_cfg)])
+        check(len(json.loads(proc.stdout)) < 2,
+              "auto 模式下同样的清单会被合并(印证两种模式的差别)")
     finally:
         if sel_backup is None:
             sel.unlink(missing_ok=True)

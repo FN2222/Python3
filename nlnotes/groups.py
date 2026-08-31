@@ -86,7 +86,49 @@ def discover_groups(cfg: Config, filter_path: str | None = None) -> dict[str, di
              if not filter_path
              or filter_path.replace("\\", "/").lower() in it["rel_path"].lower()]
 
+    # 分组只在"选课清单"范围内进行 —— 否则 groups --list 会列出全库 100+ 个分组,
+    # 而其中绝大多数一章笔记都还没写。
+    from nlnotes import selection
+    items = selection.apply(cfg, items, quiet=True)
+
     mode = str(cfg.get("group_mode", "auto")).lower()
+
+    if mode == "selection":
+        # 按选课清单的每一条包含规则分组:你按协议选课,就按协议出面试笔记。
+        # 这样不受目录深度影响 —— 无论 OSPF 底下有几层 Unit,都只出一份复习笔记。
+        includes, _ = selection.load_rules(cfg)
+        if not includes:
+            log("group_mode=selection 但选课清单没有包含规则,回退到 auto 分组", "warn")
+            mode = "auto"
+        else:
+            def clean(pat: str) -> str:
+                out = pat.replace("\\", "/").strip()
+                for ch in "*?[]":
+                    out = out.replace(ch, "")
+                return "/".join(x for x in out.split("/") if x) or ROOT_KEY
+
+            groups: dict[str, dict[str, Any]] = {}
+            unmatched = 0
+            for it in items:
+                key = None
+                for pat in includes:
+                    if selection._matches(it["rel_path"], pat):
+                        key = clean(pat)
+                        break
+                if key is None:
+                    unmatched += 1
+                    continue
+                g = groups.setdefault(key, {
+                    "id": group_id_of(key), "key": key,
+                    "title": key.split("/")[-1], "items": [],
+                })
+                g["items"].append(it)
+            if unmatched:
+                log(f"有 {unmatched} 个 PDF 没有匹配到任何包含规则,未纳入分组", "warn")
+            for g in groups.values():
+                g["items"].sort(key=lambda x: x["rel_path"])
+            return groups
+
     if mode == "auto":
         # 自适应分组要基于**全库**统计,否则 --path 过滤会让分组边界随筛选条件漂移
         all_items = load_manifest(cfg)["items"]
