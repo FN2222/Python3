@@ -15,13 +15,25 @@
 
 ```
 课程 PDF(只读)
-  ① scan     递归扫描目录树           → build/manifest.json
-  ② extract  分页文本+拓扑图+CLI 块    → build/extract/<id>/
-  ③ tasks    生成自包含任务包          → build/tasks/<id>/
-  ④ AI  ★    写 note.json(结构化)     → build/tasks/<id>/OUTPUT/note.json
-  ⑤ verify   9 组反臆想门禁            → build/reports/<id>.json
-  ⑥⑦ 渲染    动画/图/Markdown          → notes/<镜像源目录>/<课程>.md
+  ① scan/audit  扫描目录树 + PDF 体检(剔除扫描件) → build/manifest.json, audit.md
+  ② extract     分页文本+拓扑图+CLI 块(可选 OCR)  → build/extract/<id>/
+  ③ tasks       生成自包含任务包                   → build/tasks/<id>/
+  ④ write  ★    调模型写 note.json,写→校验→回灌→重写 → OUTPUT/note.json
+  ⑤ verify      9 组反臆想门禁(本地免费)          → build/reports/<id>.json
+  ⑥⑦ 渲染       动画/图/Markdown                  → notes/<镜像源目录>/<课程>.md
+  ⑧ groups / write-group / build-group
+                协议级面试复习笔记                 → notes/<方向>/<协议>/00-面试复习-*.md
 ```
+
+**两种笔记、两套标准**(不要混用):
+
+| | 章节笔记 `note.json` | 协议级面试复习笔记 `interview.json` |
+| --- | --- | --- |
+| 粒度 | 每个 PDF 一份 | 每个协议目录一份 |
+| 发散 | **零发散**,锁死本章原文 | **允许**,但核心答案仍需 `grounding`,工程经验只能进 `extension_*` |
+| schema | `schemas/note.schema.json` | `schemas/interview.schema.json` |
+| 提示词 | `prompts/00-system-中文笔记作者.md` | `prompts/50-面试复习.md` |
+| 校验 | `nlnotes verify` / `build` | `nlnotes build-group` |
 
 **最重要的设计取舍:AI 只产出受 JSON Schema 约束的 `note.json`,不写 Markdown。**
 排版、配图、动画由确定性代码渲染。这样"内容对不对"由门禁机械保证,
@@ -45,13 +57,22 @@
 
 ```bash
 python -m nlnotes doctor                  # 体检:路径/依赖/中文字体/可选工具
+python -m nlnotes audit                   # PDF 体检,剔除扫描件/加密/乱码文件
 python -m nlnotes prepare --path OSPF --limit 3   # scan+extract+tasks(建议先小批)
 python -m nlnotes next                    # 列出接下来该写哪几章
+python -m nlnotes write --dry-run         # 估算 AI 撰写成本,不发请求
+python -m nlnotes write --id <pdf_id>     # 调模型自动撰写(写→校验→回灌→重写)
 python -m nlnotes build --id <pdf_id>     # 校验+渲染+组装(日常用这个)
 python -m nlnotes verify --id <pdf_id> --show
+python -m nlnotes groups --list           # 看协议分组与完成情况
+python -m nlnotes write-group --group OSPF
+python -m nlnotes build-group --group OSPF
 python -m nlnotes status --detail
+python -m nlnotes cost                    # 汇总实际 token 用量与费用
 python tests/run_e2e.py                   # 端到端自测,期望 ✅ 全部自测通过
 ```
+
+**只有 `write` / `write-group` 会调用外部模型(花钱),其余全是本地代码。**
 
 ## 接到"写某一章笔记"的任务时
 
@@ -76,13 +97,17 @@ python tests/run_e2e.py                   # 端到端自测,期望 ✅ 全部自
 | `nlnotes/extract.py` | 分页文本、位图/矢量图抽取、图注推测、可选 OCR | 抽取参数改动需 `extract --force` 才生效 |
 | `nlnotes/evidence.py` | 证据索引、token 依据、术语匹配 | 短的全大写缩写(`AS`/`AD`/`TE`)必须大小写敏感匹配,否则会误命中 `address`/`state`/`such as` |
 | `nlnotes/taskgen.py` | 任务包生成 | `TASK_MD` 用 `str.format`,模板里的 JSON 花括号必须写成 `{{` `}}` |
-| `nlnotes/verify.py` | 9 组门禁 | 覆盖率只统计正文小节页(`body_pages`),**不要**把测验页算进去,否则反超纲检查 `X011` 会失效 |
+| `nlnotes/verify.py` | 章节笔记的 9 组门禁 | 覆盖率只统计正文小节页(`body_pages`),**不要**把测验页算进去,否则反超纲检查 `X011` 会失效 |
+| `nlnotes/groups.py` | 分组 + 面试复习笔记门禁 | `_iter_grounded_text` 决定哪些字段受原文约束;**`extension_*` 必须留在外面**,否则发散功能就废了 |
+| `nlnotes/audit.py` | PDF 体检 | 判定阈值在 config 的 `audit_*`;剔除清单写 `build/excluded.json`,由 `scan.select_items` 生效 |
+| `nlnotes/writer.py` | LLM 自动撰写闭环 | 兼容 OpenAI 协议;`extract_json` 要能容忍模型加代码块;错误必须原样回灌 |
 | `nlnotes/visuals.py` | 动画/图渲染 | 所有外部工具(mmdc/dot/ffmpeg/OCR/图像 API)缺失时必须自动降级,不能抛异常中断 |
 | `nlnotes/assemble.py` | Markdown 组装 | 模板用 `StrictUndefined`,新增可选字段要在 `_normalize()` 里补默认值 |
 | `schemas/note.schema.json` | AI 输出契约 | `additionalProperties: false`,加字段要同时改 `_template()` 与 `_normalize()` |
 
-任何代码改动后请跑 `python tests/run_e2e.py`。它会造一份合成 PDF 跑完整流水线,
-并验证 **14 个臆想反例**都被门禁拦下 —— 这是回归保护的主要手段。
+任何代码改动后请跑 `python tests/run_e2e.py`。它会造两份合成 PDF(一份正常、
+一份扫描件)跑完整流水线,用**本地假 LLM 服务**验证自动撰写闭环,
+并验证 **27 个臆想反例**都被门禁拦下 —— 这是回归保护的主要手段。
 
 ## Cursor Cloud specific instructions
 
@@ -116,3 +141,4 @@ Linux 上中文字体一般能自动探测到 `/usr/share/fonts/truetype/wqy/wqy
 | [`docs/04-验收与自测.md`](docs/04-验收与自测.md) | 门禁完整清单、自测、人工抽检 |
 | [`docs/05-常见问题.md`](docs/05-常见问题.md) | 抽不到图、中文方块、覆盖度过不了等 |
 | [`docs/06-会话交接.md`](docs/06-会话交接.md) | **历史决策、踩过的坑、当前进度、下一步** |
+| [`docs/07-批量自动化与成本.md`](docs/07-批量自动化与成本.md) | 哪些免费哪些花钱、全自动跑法、省钱做法 |

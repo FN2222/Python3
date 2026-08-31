@@ -15,15 +15,28 @@
 
 ```
 课程 PDF(只读)
-   │ ① scan     递归扫描目录树
-   │ ② extract  分页文本 + 拓扑图 + 图注 + CLI 块
-   │ ③ tasks    生成自包含"任务包"
-   │ ④ AI       ★ 唯一需要 AI 的一步:写结构化 note.json(不写 Markdown)
-   │ ⑤ verify   9 组反臆想门禁,不过就不出笔记
-   │ ⑥⑦ 渲染    动画 GIF / 分步静态图 / mermaid / 表格 → Markdown
+   │ ① scan / audit   递归扫描 + PDF 体检(扫描件、加密、乱码自动剔除)
+   │ ② extract        分页文本 + 拓扑图 + 图注 + CLI 块(可选 OCR 图内文字)
+   │ ③ tasks          生成自包含"任务包"
+   │ ④ write          ★ 唯一花钱的一步:调模型写结构化 note.json
+   │                   写 → 校验 → 错误回灌 → 重写,自动闭环
+   │ ⑤ verify         9 组反臆想门禁(本地免费),不过就不出笔记
+   │ ⑥⑦ 渲染          动画 GIF / 分步静态图 / mermaid / 表格 → Markdown
    ▼
 notes/<与源目录完全相同的层级>/<课程>.md + assets/
+   │
+   │ ⑧ groups / write-group / build-group
+   ▼
+notes/<方向>/<协议>/00-面试复习-<协议>.md      ← 协议级面试复习笔记
 ```
+
+**两种笔记、两套标准:**
+
+| | 章节笔记(每个 PDF 一份) | 协议级面试复习笔记(每个协议一份) |
+| --- | --- | --- |
+| 发散 | **零发散**,锁死本章原文 | **允许**,但必须分栏 |
+| 内容 | 详尽讲解 + 拓扑图 + 自制动画 + 费曼(必须掌握 / 难点 / 自测) | 知识体系图 + 高频原理题(答题模板 + 得分要点)+ 场景题 + 三层连环追问 + 避坑指南 |
+| 校验 | 每条知识点带逐字原文 + 页码 | 核心答案带 `grounding` 原文依据;工程经验只能进「🔶 课程外扩展」 |
 
 **核心设计:AI 只产出受 schema 约束的 JSON,排版与配图由确定性代码渲染。**
 内容对不对交给门禁,好不好看交给模板,两者互不干扰。
@@ -47,11 +60,39 @@ python -m nlnotes init
 # 3) 体检
 python -m nlnotes doctor
 
-# 4) 准备(先拿 3 章试跑)
-python -m nlnotes prepare --path OSPF --limit 3
+# 4) 体检:确认 PDF 能不能用(扫描件会被剔除并给出处理办法)
+python -m nlnotes scan
+python -m nlnotes audit          # 看 build/audit.md
 
-# 5) 看下一步该写哪章
-python -m nlnotes next
+# 5) 准备(先拿 3 章试跑)
+python -m nlnotes prepare --path OSPF --limit 3
+```
+
+### 方式 A:全自动跑完(推荐,不需要人盯着)
+
+```powershell
+$env:NLNOTES_API_KEY = "你的key"     # 配置见 config 的 writer_base_url / writer_model
+
+python -m nlnotes write --dry-run                # 先估成本,不发请求
+python -m nlnotes write --path OSPF --limit 3    # 小批试跑
+python -m nlnotes build --path OSPF --limit 3    # 校验 + 渲染,人工看效果
+python -m nlnotes write                          # 全量,可中断,重跑自动续上
+python -m nlnotes build
+
+python -m nlnotes groups                         # 协议级面试复习笔记
+python -m nlnotes write-group
+python -m nlnotes build-group
+
+python -m nlnotes cost                           # 看实际花了多少
+```
+
+**只有 `write` / `write-group` 花钱,其余全部是本地代码,免费无限跑。**
+详见 [`docs/07-批量自动化与成本.md`](docs/07-批量自动化与成本.md)。
+
+### 方式 B:让 Cursor 之类的会话逐章写
+
+```powershell
+python -m nlnotes next          # 看下一步该写哪章
 ```
 
 然后把这句话交给 AI(Cursor / Claude Code / Codex 等):
@@ -79,17 +120,35 @@ python -m nlnotes next
 
 ## 笔记长什么样
 
-每章固定结构:
+### A. 章节笔记(每个 PDF 一份)
 
 1. **本章概要** + 边界声明(明确写出覆盖与不覆盖)
 2. **术语速查**(中英对照 + 原文页码)
-3. **正文精讲** —— 每条知识点都带 `(p.x)` 页码与原文英文原句;
+3. **正文精讲** —— 每条知识点都带 `(p.x)` 页码与原文英文原句,
+   再加**深入说明**(机制怎么运作 / 成立前提 / 例外情况);
    原文拓扑图 + 中文讲解 + 图中可见标签;
    自制图解(动画 GIF + 分步静态图 + 可折叠的原文依据);
    配置/命令逐字引用 + 逐行中文注解
 4. **关键要点回顾**
-5. **费曼学习法检验** —— 大白话复述 → 自测题(中英双语)→ 常见盲点 → 复习计划 → 折叠答案(中英双语 + 原文依据 + 自评要点)
+5. **费曼学习法检验(六步)** —— 大白话复述 → **必须掌握的关键知识点**
+   (为什么必须掌握 + 记忆抓手)→ **本章难点**(难在哪 / 为什么容易卡住 / 怎么突破)
+   → 自测题(中英双语)→ 常见盲点 → 复习计划 → 折叠答案(中英双语 + 原文依据 + 自评要点)
 6. **附录:可信度说明** —— 引用通过率、AI 图声明、源 PDF 未修改声明
+
+### B. 协议级面试复习笔记(每个协议一份,放在整个 OSPF / BGP 之后)
+
+1. **知识体系图** —— mermaid 把各章串成一张图 + 复习顺序及理由
+2. **跨章必须掌握清单** —— 面试前必须张口就答的
+3. **高频必考基础 / 原理题** —— **高分答题模板**(开场结论 / 分段展开 / 收尾)
+   + **得分要点**(面试官逐条打分,中英对照)
+4. **场景化面试题** —— 具体到能动手分析的现场 + **解题框架**(排查/推导顺序)
+5. **面试官连环追问** —— 每组正好三层:是什么 → 为什么/怎么做 → 边界与代价,
+   每层标注"面试官想验证什么"
+6. **避坑指南** —— 用候选人原话写出典型错误说法,再说清错在哪、正确怎么说
+7. **面试前 5 分钟自查**
+
+题目与答案全部中英双语。课程外的工程经验统一收进
+「🔶 课程外扩展」区块,与有原文依据的核心答案分开,一眼可辨。
 
 自制动画示例(`packet_flow`,纯 Pillow 自绘,零外部依赖):
 
@@ -111,11 +170,15 @@ python -m nlnotes next
 | **G** 图片 | 编图 id、跳过拓扑图、编造图上文字 |
 | **C** 配置 | 手打一段"差不多"的 CLI 输出 |
 | **V** 可视化 | 画出原文没有的拓扑与流程 |
-| **X** 覆盖与测验 | 挑简单段落糊弄、**超纲出题**、中英双语串行 |
+| **X** 覆盖与测验 | 挑简单段落糊弄、**空洞概括**(知识点密度下限)、**超纲出题**、中英双语串行 |
 
-两边同时约束:**少写**触发覆盖度不足,**多写**触发无原文依据。
+两边同时约束:**少写**触发覆盖度不足,**写浅**触发密度不足,**多写**触发无原文依据。
 
-自测(会造合成 PDF 跑完整流水线,并验证 14 个臆想反例都被拦下):
+协议级面试复习笔记另有一套门禁:`grounding` 逐条比对原文、
+核心答案 token 依据、三层追问结构、各区块数量下限、不确定表述一律拦下。
+
+自测(造两份合成 PDF 跑完整流水线,用本地假 LLM 验证自动撰写闭环,
+并验证 **27 个臆想反例**都被拦下):
 
 ```bash
 python tests/run_e2e.py     # 期望输出:✅ 全部自测通过
@@ -128,10 +191,14 @@ python tests/run_e2e.py     # 期望输出:✅ 全部自测通过
 | 命令 | 作用 |
 | --- | --- |
 | `init` / `doctor` | 生成配置 / 环境体检 |
+| `audit` | **PDF 体检**:扫描件 / 加密 / 乱码自动剔除,并给出处理办法 |
 | `prepare` | `scan` + `extract` + `tasks` 一条龙 |
-| `next` | 列出接下来该写哪几章 |
+| `write` | **调模型自动撰写章节笔记**(写→校验→回灌→重写);`--dry-run` 估成本 |
 | `build` | 校验 + 渲染 + 组装(**日常用这个**) |
+| `groups` / `write-group` / `build-group` | 协议级面试复习笔记:分组 / 撰写 / 校验渲染 |
+| `next` | 列出接下来该写哪几章 |
 | `verify --show` | 只看门禁报告 |
+| `cost` | 汇总 AI 撰写的实际 token 用量与费用 |
 | `status --detail` / `index` | 查看进度 / 重建导航索引 |
 
 筛选参数:`--id <pdf_id>`(支持前缀)、`--path OSPF`、`--limit 5`。
@@ -145,8 +212,10 @@ python tests/run_e2e.py     # 期望输出:✅ 全部自测通过
 | `nlnotes/` | 流水线代码(scan / extract / taskgen / visuals / verify / assemble) |
 | `docs/` | 方案、安装、流水线详解、AI 手册、验收、FAQ |
 | `prompts/` | 系统提示词、可视化设计、费曼出题、修订循环 |
-| `schemas/note.schema.json` | AI 输出结构定义(`additionalProperties: false`) |
-| `templates/note.md.j2` | 笔记排版模板(想改样式改这里) |
+| `schemas/note.schema.json` | 章节笔记的 AI 输出结构(`additionalProperties: false`) |
+| `schemas/interview.schema.json` | 协议级面试复习笔记的 AI 输出结构 |
+| `templates/note.md.j2` | 章节笔记排版模板(想改样式改这里) |
+| `templates/interview.md.j2` | 面试复习笔记排版模板 |
 | `glossary/terms.csv` | 术语中英对照,可自行扩充 |
 | `config/pipeline.example.json` | 全部配置项与默认值 |
 | `examples/` | 用合成 PDF 跑出来的真实产出(笔记 + 动画 + 任务包 + 门禁报告) |
@@ -180,6 +249,7 @@ python tests/run_e2e.py     # 期望输出:✅ 全部自测通过
 | [`docs/03-AI执行手册.md`](docs/03-AI执行手册.md) | AI 逐步操作、各类工具接法、批量调度 |
 | [`docs/04-验收与自测.md`](docs/04-验收与自测.md) | 门禁完整清单、自测、人工抽检 |
 | [`docs/05-常见问题.md`](docs/05-常见问题.md) | 抽不到图、中文方块、覆盖度过不了等 |
+| [`docs/07-批量自动化与成本.md`](docs/07-批量自动化与成本.md) | **哪些免费、哪些花钱、怎么全自动跑完、怎么省钱** |
 | [`docs/06-会话交接.md`](docs/06-会话交接.md) | 历史决策、踩过的坑、当前进度、如何在新会话继承上下文 |
 
 给 AI 看的入口:[`AGENTS.md`](AGENTS.md)(本地 Agent 与 Cloud Agent 都会自动读取)

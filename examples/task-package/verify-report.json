@@ -4,8 +4,8 @@
   "error_count": 0,
   "warning_count": 1,
   "stats": {
-    "quotes_checked": 33,
-    "quotes_matched": 33,
+    "quotes_checked": 42,
+    "quotes_matched": 42,
     "ungrounded_tokens": 0,
     "figures_available": 2,
     "figures_used": 2,
@@ -13,7 +13,10 @@
     "coverage_ratio": 1.0,
     "content_pages": 4,
     "cited_pages": 4,
-    "questions": 8
+    "questions": 9,
+    "points_total": 16,
+    "points_per_content_page": 4.0,
+    "points_with_detail": 14
   },
   "errors": [],
   "warnings": [
