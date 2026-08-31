@@ -9,6 +9,11 @@
     浏览器能访问 GitHub,它一般就能下载成功(而 git 的 schannel 可能因为
     吊销检查失败而报 SEC_E_UNTRUSTED_ROOT)。
 
+.NOTES
+    第一次用不了这个脚本?说明你本地的代码还没有它(脚本没法更新到"包含它自己"的版本)。
+    先用 docs/08-本机上手-用Cursor跑.md 里的"首次自助更新"那段命令拉一次,
+    之后就能一直用这个脚本了。
+
 .EXAMPLE
     .\scripts\Update.ps1
 
@@ -29,15 +34,8 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
-# 这些是你的东西,永远不覆盖(它们本来也不在 ZIP 里,这里再兜一层保险)
-$protected = @(
-    "config\pipeline.json",
-    "config\selection.txt",
-    "build",
-    "notes",
-    ".venv",
-    "out"
-)
+# 你的配置与产物永远不会被覆盖:它们本来就不在 ZIP 里(被 .gitignore 排除),
+# 下面复制时还会用 robocopy 的 /XF /XD 再排除一次,双重保险。
 
 $zipUrl = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
 $tmp = Join-Path $env:TEMP ("nlnotes-update-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -75,26 +73,22 @@ if (-not $inner) {
 }
 
 Write-Host "==> 覆盖代码文件" -ForegroundColor Cyan
-$copied = 0
-$skipped = 0
-Get-ChildItem -Path $inner.FullName -Recurse -File | ForEach-Object {
-    $rel = $_.FullName.Substring($inner.FullName.Length + 1)
-    $isProtected = $false
-    foreach ($p in $protected) {
-        if ($rel -eq $p -or $rel.StartsWith("$p\")) { $isProtected = $true; break }
-    }
-    if ($isProtected) {
-        $skipped++
-        return
-    }
-    $dest = Join-Path $repoRoot $rel
-    $destDir = Split-Path -Parent $dest
-    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-    Copy-Item -Path $_.FullName -Destination $dest -Force
-    $copied++
+# 用 robocopy 而不是 Copy-Item:目标目录已存在时 Copy-Item -Recurse 有可能嵌套一层,
+# robocopy 是专门做目录合并的,而且能用 /XF /XD 精确排除。
+# 注意没有用 /MIR —— 不会删除本地多出来的文件(比如你的产物目录)。
+$excludeFiles = @("pipeline.json", "pipeline.json.bak", "selection.txt")
+$excludeDirs = @("build", "notes", "out", ".venv")
+$rcArgs = @($inner.FullName, $repoRoot, "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NP")
+$rcArgs += "/XF"; $rcArgs += $excludeFiles
+$rcArgs += "/XD"; $rcArgs += $excludeDirs
+& robocopy @rcArgs | Out-Null
+# robocopy 的退出码 0-7 都算成功(8 及以上才是真失败)
+if ($LASTEXITCODE -ge 8) {
+    Write-Error "复制失败(robocopy 退出码 $LASTEXITCODE)"
+    exit 1
 }
-Write-Host "    覆盖 $copied 个文件" -ForegroundColor DarkGray
-if ($skipped -gt 0) { Write-Host "    跳过 $skipped 个受保护文件" -ForegroundColor DarkGray }
+Write-Host "    完成(已跳过 $($excludeFiles -join '、') 与 $($excludeDirs -join '、'))" `
+    -ForegroundColor DarkGray
 
 if (-not $KeepDownload) {
     Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue

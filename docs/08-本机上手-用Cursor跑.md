@@ -133,6 +133,33 @@ cd D:\Python3
 .\scripts\Update.ps1 -UpgradeConfig
 ```
 
+#### 首次自助更新(本地还没有 Update.ps1 时)
+
+如果上面那条报 `无法将".\scripts\Update.ps1"项识别为 cmdlet`,
+说明你本地的代码还没有这个脚本 —— 脚本没法更新到"包含它自己"的版本。
+把下面**整段**粘进本机 PowerShell 跑一次,之后就能一直用脚本了:
+
+```powershell
+cd D:\Python3
+$b = "cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b"
+$t = "$env:TEMP\nl-up"
+Remove-Item $t -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory $t | Out-Null
+$ProgressPreference = "SilentlyContinue"
+Invoke-WebRequest "https://github.com/FN2222/Python3/archive/refs/heads/$b.zip" `
+  -OutFile "$t\s.zip" -UseBasicParsing
+Expand-Archive "$t\s.zip" $t -Force
+$src = (Get-ChildItem $t -Directory)[0].FullName
+robocopy $src . /E /NFL /NDL /NJH /NJS /NP /XF pipeline.json selection.txt `
+  /XD build notes out .venv | Out-Null
+Remove-Item $t -Recurse -Force
+.\.venv\Scripts\python.exe -m nlnotes init --upgrade
+```
+
+这段和 `Update.ps1` 做的是同一件事:下载分支 ZIP → 用 robocopy 合并覆盖代码 →
+补齐配置项。你的 `config\pipeline.json`、`config\selection.txt`、
+`build\`、`notes\`、`.venv\` 都会被跳过。
+
 下面是分情况的手工做法。先判断你当初是怎么拿到代码的:
 
 ```powershell
