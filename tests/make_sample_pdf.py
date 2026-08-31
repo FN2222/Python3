@@ -189,6 +189,104 @@ def build_weblike(out_dir: Path, count: int = 8) -> list[Path]:
     return made
 
 
+def build_vector(out_dir: Path) -> Path:
+    """模拟"概念课"的矢量框图 PDF(如神经网络、SDN 架构图)。
+
+    这类图不是位图,而是矩形 + 圆 + 箭头画出来的,`get_images()` 抽不到,
+    只能靠矢量区域渲染。而且图里的文字(Input 1 / Neuron / 0 or 1)是独立文本对象,
+    裁剪时必须把这些标签一起框进来,否则图就看不懂了。
+    """
+    out_dir = out_dir / "Automation & Cloud" / "Network Automation" / "Unit 5 AI and ML"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pdf = out_dir / "016 - AI and ML in Networking.pdf"
+
+    c = canvas.Canvas(str(pdf), pagesize=A4)
+    for page_no in range(2):
+        c.setFont("Helvetica", 9)
+        c.drawString(2 * cm, H - 1.6 * cm, "Search …")
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(2 * cm, H - 2.6 * cm, "2.2. Neural Networks")
+        c.setFont("Helvetica", 11)
+        y = H - 3.5 * cm
+        for line in [
+            "What exactly is a neural network? To understand this, it is best to start",
+            "with a simplified example of a neural network with a single neuron.",
+            "We call it a neuron, but it is also sometimes referred to as a node or unit.",
+        ]:
+            c.drawString(2 * cm, y, line)
+            y -= 0.55 * cm
+
+        # ---------- 矢量框图:3 个输入框 + 1 个神经元圆 + 1 个输出框 + 箭头 ----------
+        top = y - 1.0 * cm
+        box_w, box_h = 2.6 * cm, 0.8 * cm
+        left_x = 2 * cm
+        neuron = (left_x + 5.2 * cm, top - 2.0 * cm)
+        out_box = (left_x + 8.6 * cm, top - 2.0 * cm - box_h / 2)
+
+        labels = ["Input 3", "Input 2", "Input 1"] if page_no == 0 else \
+                 ["Energy", "Time", "Study Partner"]
+        for i, name in enumerate(labels):
+            by = top - i * 1.55 * cm - box_h
+            c.setFillColorRGB(0.05, 0.28, 0.55)
+            c.rect(left_x, by, box_w, box_h, fill=1, stroke=0)
+            c.setFillColorRGB(1, 1, 1)
+            c.setFont("Helvetica", 9)
+            c.drawString(left_x + 0.25 * cm, by + 0.28 * cm, name)
+            c.setFillColorRGB(0, 0, 0)
+            if page_no == 1:
+                c.setFont("Helvetica", 7)
+                c.drawString(left_x + 0.25 * cm, by - 0.35 * cm, "0 or 1")
+            # 箭头(线 + 箭头三角)
+            c.setStrokeColorRGB(0.85, 0.12, 0.12)
+            c.setLineWidth(1.6)
+            sx, sy = left_x + box_w, by + box_h / 2
+            ex, ey = neuron[0] - 0.75 * cm, neuron[1]
+            c.line(sx, sy, ex, ey)
+            c.setFillColorRGB(0.85, 0.12, 0.12)
+            p = c.beginPath()
+            p.moveTo(ex, ey)
+            p.lineTo(ex - 0.18 * cm, ey + 0.12 * cm)
+            p.lineTo(ex - 0.18 * cm, ey - 0.12 * cm)
+            p.close()
+            c.drawPath(p, fill=1, stroke=0)
+            c.setFillColorRGB(0, 0, 0)
+
+        c.setFillColorRGB(0.09, 0.55, 0.24)
+        c.circle(neuron[0], neuron[1], 0.75 * cm, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica", 8)
+        c.drawString(neuron[0] - 0.5 * cm, neuron[1] - 0.1 * cm, "Neuron")
+
+        c.setFillColorRGB(0.05, 0.28, 0.55)
+        c.rect(out_box[0], out_box[1], box_w, box_h, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica", 9)
+        c.drawString(out_box[0] + 0.25 * cm, out_box[1] + 0.28 * cm, "Output")
+        c.setStrokeColorRGB(0.85, 0.12, 0.12)
+        c.line(neuron[0] + 0.75 * cm, neuron[1], out_box[0], neuron[1])
+        c.setFillColorRGB(0, 0, 0)
+        if page_no == 1:
+            c.setFont("Helvetica", 7)
+            c.drawString(out_box[0] + 0.25 * cm, out_box[1] - 0.4 * cm, "Total input:")
+            c.drawString(out_box[0] + 0.25 * cm, out_box[1] - 0.75 * cm, "=> 2 = yes")
+
+        c.setFont("Helvetica", 11)
+        yy = out_box[1] - 2.2 * cm
+        for line in [
+            "A simple neural network like this with a single output is called a perceptron.",
+            "In this example, the inputs are all equally important to the decision.",
+        ]:
+            c.drawString(2 * cm, yy, line)
+            yy -= 0.55 * cm
+
+        c.setFont("Helvetica", 9)
+        c.drawString(2 * cm, 2.0 * cm, "Lessons")
+        c.showPage()
+    c.save()
+    print(f"已生成矢量框图测试 PDF: {pdf}")
+    return pdf
+
+
 def build_scanned(out_dir: Path) -> Path:
     """再造一份"扫描件"PDF(整页是图片、没有文本层),用来验证 audit 能把它剔除。"""
     out_dir = out_dir / "IGP" / "OSPF"
@@ -222,3 +320,5 @@ if __name__ == "__main__":
         build_scanned(target)
     if "--with-weblike" in sys.argv:
         build_weblike(target)
+    if "--with-vector" in sys.argv:
+        build_vector(target)

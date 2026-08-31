@@ -87,16 +87,62 @@ def scan(cfg: Config, force: bool = False) -> dict[str, Any]:
             if course_path else f"{slugify(p.stem, 80)}.md",
         })
 
+    dup_stats = _mark_duplicates(items)
+
     manifest = {
         "source_root": str(root),
         "notes_dir": str(cfg.notes_dir),
         "count": len(items),
         "categories": sorted({it["course_path"][0] for it in items if it["course_path"]}),
+        "duplicates": dup_stats,
         "items": items,
     }
     write_json(cfg.manifest_path, manifest)
     log(f"扫描完成: {len(items)} 个 PDF,{len(manifest['categories'])} 个一级方向 -> {cfg.manifest_path}", "ok")
     return manifest
+
+
+def _mark_duplicates(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """标记内容完全相同的 PDF(SHA-256 一致)。
+
+    NetworkLessons 会把同一节课交叉归档到多个认证方向(CCNA / CCNP / CCIE /
+    Routing & Switching),所以文件总数远大于实际课程数。同一份内容写两遍笔记
+    既浪费额度又没意义,所以这里挑一个"正本"(路径排序最靠前的那个),
+    其余标记 dup_of 指向它。后续阶段默认跳过副本,并为副本生成指向正本的短笔记。
+    """
+    by_hash: dict[str, list[dict[str, Any]]] = {}
+    for it in items:
+        sha = it.get("sha256") or ""
+        if not sha:
+            continue
+        by_hash.setdefault(sha, []).append(it)
+
+    dup_groups = 0
+    dup_files = 0
+    for sha, group in by_hash.items():
+        for it in group:
+            it["dup_of"] = None
+            it["dup_count"] = len(group)
+        if len(group) < 2:
+            continue
+        dup_groups += 1
+        group.sort(key=lambda x: x["rel_path"])
+        canonical = group[0]
+        for other in group[1:]:
+            other["dup_of"] = canonical["id"]
+            dup_files += 1
+
+    return {
+        "duplicate_groups": dup_groups,
+        "duplicate_files": dup_files,
+        "unique_files": len(items) - dup_files,
+        "largest_groups": sorted(
+            ({"sha256": sha[:12], "count": len(g),
+              "canonical": g[0]["rel_path"],
+              "others": [x["rel_path"] for x in g[1:6]]}
+             for sha, g in by_hash.items() if len(g) > 1),
+            key=lambda x: -x["count"])[:15],
+    }
 
 
 def load_manifest(cfg: Config) -> dict[str, Any]:
@@ -135,6 +181,13 @@ def select_items(cfg: Config, ids: list[str] | None = None,
             if before != len(items):
                 log(f"已跳过体检剔除的 {before - len(items)} 个 PDF"
                     f"(详见 build/audit.md;要强制处理请显式传 --id)")
+
+    if cfg.get("skip_duplicate_content") and not include_excluded and not ids:
+        before = len(items)
+        items = [it for it in items if not it.get("dup_of")]
+        if before != len(items):
+            log(f"已跳过内容完全相同的 {before - len(items)} 个副本 PDF"
+                f"(同一节课被交叉归档到多个认证方向;详见 nlnotes dups)")
 
     if limit:
         items = items[:limit]

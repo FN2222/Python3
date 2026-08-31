@@ -94,6 +94,26 @@ def _manifest_section(cfg: Config) -> tuple[list[str], list[dict[str, Any]]]:
              "| 一级方向 | PDF 数 |", "| --- | --- |"]
     for cat, n in by_cat.most_common():
         lines.append(f"| {cat} | {n} |")
+    dup = m.get("duplicates") or {}
+    if dup:
+        total = len(items)
+        dupf = dup.get("duplicate_files", 0)
+        lines += ["", "**重复内容**(同一节课被交叉归档到多个认证方向)", "",
+                  f"- 内容互不相同的课程数:**{dup.get('unique_files', total)}**",
+                  f"- 重复副本数:**{dupf}**"
+                  + (f"({dupf / total:.0%})" if total else ""),
+                  f"- 重复组数:{dup.get('duplicate_groups', 0)}"]
+        if dupf:
+            lines.append(f"- ⚠️ **实际需要撰写的章节数是 "
+                         f"{dup.get('unique_files', total)},而不是 {total}** —— "
+                         f"按这个数估成本。副本会自动跳过,并生成指向正本的短笔记。")
+            top = dup.get("largest_groups") or []
+            if top:
+                lines += ["", "重复最多的几组:", ""]
+                for g in top[:5]:
+                    lines.append(f"  - {g['count']} 份 — `{g['canonical']}`")
+        lines.append("")
+
     lines += ["", "**目录层级样例(前 8 个)**", "", "```"]
     for it in items[:8]:
         lines.append(it["rel_path"])

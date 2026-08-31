@@ -320,32 +320,116 @@ def _raster_figures(doc: "fitz.Document", page: "fitz.Page", pno: int,
     return figs
 
 
-def _cluster_rects(rects: list[fitz.Rect], margin: float = 16.0) -> list[fitz.Rect]:
-    boxes = [fitz.Rect(r) for r in rects if r.width > 1 and r.height > 1]
+def _cluster_rects(rects: list[fitz.Rect],
+                   margin: float = 16.0) -> list[tuple[fitz.Rect, int]]:
+    """把邻近的绘图对象聚成一张图,返回 [(外框, 成员数)]。
+
+    注意:**不能丢掉退化成线的矩形**。箭头、连接线的宽或高约等于 0,
+    而它们恰恰是把框图各部分连起来的关键 —— 丢了它们,一张图会被切成好几块。
+    只过滤掉真正的小点(长宽都 < 2pt)。
+    成员数用来区分"真的是图"(很多形状)和"标题下的一条分隔线"(一两个对象)。
+    """
+    boxes: list[fitz.Rect] = []
+    for raw in rects:
+        r = fitz.Rect(raw)
+        r.normalize()
+        if max(r.width, r.height) < 2:
+            continue                     # 真正的小点,丢掉
+        # PyMuPDF 里宽或高为 0 的矩形是 empty,intersects() 恒为 False,
+        # 会导致连接线永远无法把两端合并。所以先把退化的那一维撑开 1pt。
+        if r.height < 1:
+            r.y1 = r.y0 + 1
+        if r.width < 1:
+            r.x1 = r.x0 + 1
+        boxes.append(r)
+    counts = [1] * len(boxes)
     changed = True
     while changed and boxes:
         changed = False
         merged: list[fitz.Rect] = []
-        for box in boxes:
+        merged_counts: list[int] = []
+        for box, cnt in zip(boxes, counts):
             hit = None
-            grown = fitz.Rect(box.x0 - margin, box.y0 - margin, box.x1 + margin, box.y1 + margin)
+            grown = fitz.Rect(box.x0 - margin, box.y0 - margin,
+                              box.x1 + margin, box.y1 + margin)
             for i, m in enumerate(merged):
                 if grown.intersects(m):
                     hit = i
                     break
             if hit is None:
                 merged.append(fitz.Rect(box))
+                merged_counts.append(cnt)
             else:
                 merged[hit] |= box
+                merged_counts[hit] += cnt
                 changed = True
-        boxes = merged
-    return boxes
+        boxes, counts = merged, merged_counts
+    return list(zip(boxes, counts))
+
+
+def _expand_to_labels(box: "fitz.Rect", lines: list[dict[str, Any]],
+                      max_gap: float, max_label_len: int,
+                      max_grow: float) -> "fitz.Rect":
+    """把图形区域扩张到包含紧邻的短文本标签。
+
+    矢量图的文字(Input 1、Neuron、0 or 1、* weight、Total input:)是独立的文本对象,
+    不在 drawing 的 bbox 里。只按图形聚类裁剪会把标签切掉,图就看不懂了。
+    所以迭代吸纳"距离近且很短"的文本行 —— 长句子(正文段落)不会被吸进来。
+    """
+    limit = fitz.Rect(box.x0 - max_grow, box.y0 - max_grow,
+                      box.x1 + max_grow, box.y1 + max_grow)
+    out = fitz.Rect(box)
+    for _ in range(6):                      # 迭代几轮让标签链式吸纳,但有硬上限兜底
+        changed = False
+        grown = fitz.Rect(out.x0 - max_gap, out.y0 - max_gap,
+                          out.x1 + max_gap, out.y1 + max_gap)
+        for ln in lines:
+            text = norm_space(ln["text"])
+            if not text or len(text) > max_label_len:
+                continue
+            r = fitz.Rect(ln["bbox"])
+            if out.contains(r) or not grown.intersects(r):
+                continue
+            merged = fitz.Rect(out) | r
+            if not limit.contains(merged):   # 超出允许的扩张范围就不要
+                continue
+            out = merged
+            changed = True
+        if not changed:
+            break
+    return out
+
+
+def _trim_off_paragraphs(clip: "fitz.Rect", lines: list[dict[str, Any]],
+                         max_label_len: int) -> "fitz.Rect":
+    """把裁剪框从正文段落处收回来,避免图的边缘蹭到一行正文。
+
+    只在纵向收缩(段落通常是整行宽),而且收缩后高度不得低于原来的 60%,
+    否则说明判断有误,宁可不收。
+    """
+    out = fitz.Rect(clip)
+    mid = (out.y0 + out.y1) / 2
+    original_h = out.height
+    for ln in lines:
+        text = norm_space(ln["text"])
+        if len(text) <= max_label_len:
+            continue                       # 短标签,属于图的一部分
+        r = fitz.Rect(ln["bbox"])
+        if not out.intersects(r):
+            continue
+        if r.y0 >= mid:
+            out.y1 = min(out.y1, r.y0 - 2)
+        else:
+            out.y0 = max(out.y0, r.y1 + 2)
+    if out.height < original_h * 0.6 or out.is_empty:
+        return fitz.Rect(clip)
+    return out
 
 
 def _vector_figures(page: "fitz.Page", pno: int, lines: list[dict[str, Any]],
                     cfg: Config, out_dir: Path, taken: list[list[float]],
                     seen: set[str]) -> list[dict[str, Any]]:
-    """渲染矢量绘制的拓扑图区域(部分 PDF 的拓扑图不是位图)。"""
+    """渲染矢量绘制的拓扑图区域(部分 PDF 的拓扑图不是位图,而是矩形+箭头画出来的)。"""
     try:
         drawings = page.get_drawings()
     except Exception:
@@ -353,13 +437,18 @@ def _vector_figures(page: "fitz.Page", pno: int, lines: list[dict[str, Any]],
     if len(drawings) < cfg["vector_min_drawings"]:
         return []
 
-    clusters = _cluster_rects([d["rect"] for d in drawings])
+    clusters = _cluster_rects([d["rect"] for d in drawings],
+                              margin=float(cfg["vector_cluster_margin_pt"]))
     figs: list[dict[str, Any]] = []
     idx = 0
-    for cl in sorted(clusters, key=lambda r: (r.y0, r.x0)):
+    for cl, members in sorted(clusters, key=lambda x: (x[0].y0, x[0].x0)):
+        # 成员太少的多半是分隔线、表格边框、小装饰,不是图
+        if members < int(cfg["vector_min_cluster_drawings"]):
+            continue
         if cl.get_area() < cfg["vector_min_cluster_area"]:
             continue
-        if cl.width < cfg["figure_min_width"] * 0.5 or cl.height < cfg["figure_min_height"] * 0.5:
+        if cl.width < float(cfg["vector_min_cluster_width_pt"]) or \
+                cl.height < float(cfg["vector_min_cluster_height_pt"]):
             continue
         if cl.get_area() > page.rect.get_area() * 0.92:      # 整页边框
             continue
@@ -367,7 +456,13 @@ def _vector_figures(page: "fitz.Page", pno: int, lines: list[dict[str, Any]],
                (fitz.Rect(t) & cl).get_area() > cl.get_area() * 0.5 for t in taken):
             continue
 
-        clip = fitz.Rect(cl.x0 - 8, cl.y0 - 8, cl.x1 + 8, cl.y1 + 8) & page.rect
+        box = _expand_to_labels(cl, lines,
+                               max_gap=float(cfg["vector_label_gap_pt"]),
+                               max_label_len=int(cfg["vector_label_max_chars"]),
+                               max_grow=float(cfg["vector_label_max_grow_pt"]))
+        pad = float(cfg["vector_clip_padding_pt"])
+        clip = fitz.Rect(box.x0 - pad, box.y0 - pad, box.x1 + pad, box.y1 + pad) & page.rect
+        clip = _trim_off_paragraphs(clip, lines, int(cfg["vector_label_max_chars"]))
         try:
             pix = page.get_pixmap(matrix=fitz.Matrix(cfg["figure_render_zoom"],
                                                      cfg["figure_render_zoom"]),

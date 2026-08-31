@@ -66,21 +66,40 @@ def main() -> int:
     # ---------------------------------------------------------------- 1
     print("\n[1/8] 生成合成课程 PDF(正常 + 扫描件 + 网页导出风格深目录)")
     sys.path.insert(0, str(ROOT / "tests"))
-    from make_sample_pdf import build, build_scanned, build_weblike
+    from make_sample_pdf import build, build_scanned, build_weblike, build_vector
     pdf = build(SRC)
     scanned = build_scanned(SRC)
     weblike = build_weblike(SRC)
+    vector_pdf = build_vector(SRC)
+    # 模拟 NetworkLessons 的交叉归档:同一节课出现在多个认证方向下
+    dup_dir = SRC / "Cisco" / "CCNA 200-301" / "Unit 4 IP Connectivity" / "4.4 OSPF"
+    dup_dir.mkdir(parents=True, exist_ok=True)
+    dup_copy = dup_dir / pdf.name
+    shutil.copyfile(pdf, dup_copy)
     before = pdf.stat().st_mtime, pdf.stat().st_size
 
     print("\n[2/8] scan + extract + tasks")
     run(["prepare", *COMMON])
     manifest = load(BUILD / "manifest.json")
-    expected = 2 + len(weblike)
+    expected = 2 + len(weblike) + 1 + 1        # 正常 + 扫描件 + 网页风格 + 矢量图 + 重复副本
     check(manifest["count"] == expected,
           f"扫描到 {expected} 个 PDF(实际 {manifest['count']})")
     check(max(i["depth"] for i in manifest["items"]) >= 5,
           "识别到深层嵌套目录(≥5 层)")
-    good = next(i for i in manifest["items"] if "Neighbor Adjacency" in i["rel_path"])
+
+    # --- 重复内容:交叉归档的副本必须被识别并跳过 ---
+    dstats = manifest.get("duplicates") or {}
+    check(dstats.get("duplicate_files") == 1,
+          f"识别出 1 个内容重复的副本(实际 {dstats.get('duplicate_files')})")
+    check(dstats.get("unique_files") == expected - 1, "唯一课程数扣掉了副本")
+    dup_items = [i for i in manifest["items"] if i.get("dup_of")]
+    check(len(dup_items) == 1 and dup_items[0]["dup_of"], "副本正确指向了正本")
+    proc = run(["dups", *COMMON])
+    check("实际需要撰写的章节数" in proc.stdout, "dups 给出了实际需撰写的章节数")
+    check((BUILD / "duplicates.md").exists(), "生成重复内容报告")
+
+    good = next(i for i in manifest["items"]
+                if "Neighbor Adjacency" in i["rel_path"] and not i.get("dup_of"))
     bad = next(i for i in manifest["items"] if "Scanned" in i["rel_path"])
     web = next(i for i in manifest["items"] if "Lesson 1.pdf" in i["rel_path"])
     pdf_id = good["id"]
@@ -97,6 +116,16 @@ def main() -> int:
           "翻页箭头不再被误判成标题")
     check("OSPF supports a number of methods" in wtext, "正文没有被误删")
     check(any("OSPF Filtering Lesson" in x["title"] for x in wsecs), "真正的标题仍被识别")
+
+    # --- 矢量框图(概念课常见):get_images 抽不到,必须靠区域渲染 ---
+    vec = next(i for i in manifest["items"] if "AI and ML" in i["rel_path"])
+    vfigs = load(BUILD / "extract" / vec["id"] / "figures.json")["figures"]
+    check(len(vfigs) >= 2, f"矢量框图被抽出来了(实际 {len(vfigs)} 张)")
+    check(all(f["kind"] == "vector" for f in vfigs), "识别为矢量图类型")
+    if vfigs:
+        # 整张图(含右侧 Output 框)都要在框内 —— 连接线必须把两端合并成一张图
+        w = vfigs[0]["bbox"][2] - vfigs[0]["bbox"][0]
+        check(w > 250, f"连接线把图两端合并成一整张(宽度 {w:.0f}pt > 250)")
 
     meta = load(BUILD / "extract" / pdf_id / "extract.json")
     check(meta["pages_total"] == 4, f"抽取到 4 页(实际 {meta['pages_total']})")
@@ -179,8 +208,10 @@ def main() -> int:
           "只有 3 章的深目录被自适应向上合并,没有单独成组")
     check(any(g["chapters"] >= 6 for g in groups_info),
           f"合并后存在 ≥6 章的分组(各组章节数 {[g['chapters'] for g in groups_info]})")
-    mine = next(g for g in groups_info
-                if any(pdf_id in x for x in [g["id"]]) or g["key"] in good["rel_path"])
+    # 找出 good 这一章所属的分组:路径前缀最长的那个
+    cands = [g for g in groups_info if good["rel_path"].startswith(g["key"] + "/")]
+    check(bool(cands), f"能定位 {good['rel_path']} 所属的分组")
+    mine = max(cands, key=lambda g: len(g["key"]))
     group_id, group_key, group_title = mine["id"], mine["key"], mine["title"]
 
     run(["groups", *COMMON])
@@ -199,7 +230,7 @@ def main() -> int:
     ivp.parent.mkdir(parents=True, exist_ok=True)
     ivp.write_text(json.dumps(interview, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    run(["build-group", "--group", group_key, *COMMON])
+    run(["build-group", "--group", group_id, *COMMON])
     grep_ = load(BUILD / "reports" / f"group-{group_id}.json")
     if not grep_["passed"]:
         print(json.dumps(grep_["errors"], ensure_ascii=False, indent=2)[:3000])
@@ -347,12 +378,21 @@ def main() -> int:
         badv = json.loads(json.dumps(interview))
         mutate(badv)
         ivp.write_text(json.dumps(badv, ensure_ascii=False, indent=2), encoding="utf-8")
-        run(["build-group", "--group", group_key, *COMMON], expect_rc=1)
+        run(["build-group", "--group", group_id, *COMMON], expect_rc=1)
         r = load(BUILD / "reports" / f"group-{group_id}.json")
         codes = sorted({e["code"] for e in r["errors"]})
         check(not r["passed"], f"面试笔记拦住「{desc}」(错误码 {codes})")
 
     # ---------------------------------------------------------------- 7
+    print("\n[7.5/8] 副本笔记指向正本")
+    run(["dups", "--write-pointers", *COMMON])
+    dup_md = NOTES / dup_items[0]["note_rel_path"]
+    check(dup_md.exists(), "为副本生成了占位笔记,目录树没有空洞")
+    if dup_md.exists():
+        dtext = dup_md.read_text(encoding="utf-8")
+        check("内容完全相同" in dtext, "占位笔记说明了这是重复内容")
+        check("duplicate-pointer" in dtext, "占位笔记标注了类型")
+
     print("\n[8/8] 确认源 PDF 未被改动")
     after = pdf.stat().st_mtime, pdf.stat().st_size
     check(before == after, "源 PDF 的修改时间与大小均未变化")

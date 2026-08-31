@@ -24,9 +24,23 @@ DEFAULTS: dict[str, Any] = {
     "figure_min_height": 90,
     "figure_min_area": 24000,
     "figure_render_zoom": 2.0,        # 矢量拓扑图区域渲染倍率
-    "vector_min_drawings": 12,        # 一页中矢量绘图对象数量达到该值才尝试区域渲染
-    "vector_min_cluster_area": 30000,
+    # 有些课程(尤其概念类,如神经网络、SDN 架构)的图不是位图,而是矩形+箭头画出来的。
+    # 这类图 get_images() 抽不到,必须靠"矢量区域渲染"。一张简单的框图可能只有
+    # 6~14 个绘图对象,所以阈值不能设太高,否则整类图都会漏掉。
     "extract_vector_figures": True,
+    "vector_min_drawings": 6,          # 一页中矢量绘图对象数量达到该值才尝试区域渲染
+    "vector_min_cluster_drawings": 4,  # 一张图至少由几个图形对象组成(滤掉分隔线/表格边框)
+    "vector_min_cluster_area": 12000,  # 图形区域最小面积(pt²)
+    "vector_min_cluster_width_pt": 60.0,   # 图形区域最小宽度
+    "vector_min_cluster_height_pt": 40.0,  # 图形区域最小高度
+    "vector_cluster_margin_pt": 16.0,  # 相邻图形合并成一张图的间距容差
+    # 矢量图的文字是独立文本对象,只按图形裁剪会把标签切掉(Input 1、Neuron、0 or 1
+    # 这些就没了,图也就看不懂了)。下面几项控制"把紧邻的短标签一起框进来",
+    # 长句子(正文段落)不会被吸进来。
+    "vector_label_gap_pt": 22.0,      # 标签与图形的最大间距
+    "vector_label_max_chars": 46,     # 超过这个长度视为正文,不吸纳
+    "vector_label_max_grow_pt": 70.0, # 相对原图形区域的最大扩张幅度
+    "vector_clip_padding_pt": 10.0,   # 最终裁剪时的留白
     "figure_dedupe": True,            # 同一张图在多页重复出现时只保留第一次
     "caption_lookahead_pt": 90,       # 在图片下方多少 pt 内寻找图注
     "context_chars": 700,             # 图片附近上下文字符数(交给 AI 判断图讲什么)
@@ -114,6 +128,12 @@ DEFAULTS: dict[str, Any] = {
     "audit_min_pages": 1,
     "audit_max_garbled_ratio": 0.25,     # 乱码字符占比上限(CID 未映射等)
     "respect_audit_exclusions": True,    # 后续阶段自动跳过 audit 剔除的 PDF
+
+    # ---------- 重复内容 ----------
+    # NetworkLessons 把同一节课交叉归档到多个认证方向(CCNA/CCNP/CCIE/R&S),
+    # 所以文件总数远大于实际课程数。同一份内容写两遍笔记既浪费额度又没意义,
+    # 所以默认只给"正本"写笔记,副本用一篇指向正本的短笔记占位(nlnotes dups)。
+    "skip_duplicate_content": True,
 
     # ---------- AI 自动撰写(write) ----------
     # 兼容 OpenAI Chat Completions 协议的任何服务:DeepSeek / 通义 / 智谱 / Kimi /

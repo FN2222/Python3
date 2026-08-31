@@ -231,6 +231,20 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_dups(args) -> int:
+    from nlnotes.dups import report, write_pointers
+    cfg = _cfg(args)
+    text = report(cfg)
+    out = cfg.build_dir / "duplicates.md"
+    from nlnotes.util import write_text
+    write_text(out, text)
+    print(text)
+    print(f"报告已写入: {out}")
+    if args.write_pointers:
+        write_pointers(cfg)
+    return 0
+
+
 def cmd_diag(args) -> int:
     from nlnotes.diag import diagnose
     cfg = _cfg(args)
@@ -261,11 +275,23 @@ def _pick_groups(cfg, args) -> list[dict]:
     groups = discover_groups(cfg, args.filter_path)
     if getattr(args, "group", None):
         wanted = [g.lower() for g in args.group]
+        # 先精确匹配:完整分组键 / 分组 id / 末级目录名。
+        # --group OSPF 这种写法会命中很多分组,所以只有精确匹配全部落空时才退回模糊匹配,
+        # 并且把命中的分组打印出来,避免不知不觉处理了一堆分组。
         picked = [g for g in groups.values()
                   if g["key"].lower() in wanted or g["id"].lower() in wanted
-                  or any(w in g["key"].lower() for w in wanted)]
+                  or g["title"].lower() in wanted]
         if not picked:
-            raise KeyError(f"找不到分组: {args.group};可用分组: {sorted(groups)}")
+            picked = [g for g in groups.values()
+                      if any(w in g["key"].lower() for w in wanted)]
+            if len(picked) > 1:
+                log(f"“{', '.join(args.group)}”模糊匹配到 {len(picked)} 个分组:"
+                    + "、".join(g["key"] for g in picked[:8])
+                    + (" ..." if len(picked) > 8 else "")
+                    + "。要精确指定请用完整分组键或 id(见 groups --list)", "warn")
+        if not picked:
+            raise KeyError(f"找不到分组: {args.group};"
+                           f"可用分组见 nlnotes groups --list")
         return picked
     return [groups[k] for k in sorted(groups)]
 
@@ -519,6 +545,12 @@ def build_parser() -> argparse.ArgumentParser:
     _common(sp)
     _select(sp)
     sp.set_defaults(func=cmd_audit)
+
+    sp = sub.add_parser("dups", help="重复内容报告:哪些 PDF 内容完全相同,实际要写多少章")
+    _common(sp)
+    sp.add_argument("--write-pointers", action="store_true",
+                    help="为副本生成指向正本笔记的短笔记,保持目录树完整")
+    sp.set_defaults(func=cmd_dups)
 
     sp = sub.add_parser("diag", help="把调参需要的信息打包成一个文件(build/diagnosis.md)")
     _common(sp)
