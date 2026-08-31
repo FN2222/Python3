@@ -160,17 +160,33 @@ python -m venv .venv
 
 - **`source_root` 必须用正斜杠 `/` 或双反斜杠 `\\`** —— JSON 里单反斜杠是转义符,会报错。
 - `font_path` 是自制动画里中文的字体。没有微软雅黑就用 `C:/Windows/Fonts/simhei.ttf`。
-- **`figure_ocr` 建议开** —— 拓扑图里的 `R1`、`Gi0/1`、`10.0.0.0/24` 只存在于图片像素里,
-  不在 PDF 文本层。开了 OCR 之后这些文字会出现在任务包里,Grok 不必"看图"也能正确引用。
-  需要额外装:
+- **`figure_ocr` 是可选项,装不上就跳过,不要在这里耗时间。**
+  它的作用是把拓扑图里的 `R1`、`Gi0/1`、`10.0.0.0/24` 提取到任务包里
+  —— 这些文字只存在于图片像素中,不在 PDF 文本层。
+  开了 OCR,Grok 不必"看图"也能正确引用;不开,就让 Grok 直接打开图片文件看
+  (Grok 4.6 支持读图),**提示词里已经明确要求它看图**,而且门禁会兜底:
+  没看图瞎填标签会被 `T001` 拦下。
+
+  想装的话:
 
   ```powershell
   .\.venv\Scripts\python.exe -m pip install pytesseract
   winget install UB-Mannheim.TesseractOCR
   ```
 
-  装不上也没关系,把 `figure_ocr` 改回 `false`,让 Grok 直接看图片文件即可
-  (Grok 4.6 支持读图),只是要在提示词里明确要求它打开图片看。
+  **公司电脑上 winget 常会失败**(`尝试更新源失败: winget` —— 源更新被网络拦了,
+  和上面 git 的证书问题同一个根因)。两个办法:
+
+  ```powershell
+  winget source reset --force
+  winget install UB-Mannheim.TesseractOCR
+  ```
+
+  或者浏览器打开 <https://github.com/UB-Mannheim/tesseract/wiki> 下 exe 安装包
+  (浏览器访问 GitHub 是通的)。
+
+  **都不行就把 `figure_ocr` 保持 `false` 直接往下走**,后面想装了再回来开,
+  开启后需要重跑 `nlnotes extract --force`。
 
 ### 1.4 体检
 
@@ -414,6 +430,8 @@ Grok 4.6 能读图,但如果不明确要求,它可能只读 `figures.md` 的文�
 | `bash: cd: too many arguments` / `cd: Python3: No such file or directory` | **跑错终端了** —— 你在云端 agent 的 bash 里,不是本机 PowerShell。见本文开头的警告 |
 | `schannel: SEC_E_UNTRUSTED_ROOT` 克隆失败 | 公司网络 HTTPS 审查;先试 `git config --global http.schannelCheckRevoke false`,不行就下 ZIP。见第 1.1 节 |
 | PowerShell 里中文报错是乱码 | 先执行 `chcp 65001` |
+| `尝试更新源失败: winget` | winget 源被公司网络拦了。OCR 是可选项,直接把 `figure_ocr` 保持 `false` 往下走 |
+| `pip install` 报 SSL 证书错误 | 加参数:`--trusted-host pypi.org --trusted-host files.pythonhosted.org` |
 | 命令报 `课程根目录不存在` | `config\pipeline.json` 的 `source_root` 是不是写了单反斜杠 |
 | 扫描到 0 个 PDF | 路径对不对;文件是不是真的 `.pdf` |
 | 大量 PDF 被 audit 剔除 | `build\audit.md` 的原因列;多半是扫描件,需要先 OCR |
