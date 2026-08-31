@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -40,6 +41,15 @@ def cmd_doctor(args) -> int:
     cfg = _cfg(args)
     print(f"nlnotes {__version__}")
     print(f"配置文件      : {cfg.path or '(使用内置默认值)'}")
+    if cfg.path:
+        _missing, _stale = config_diff(cfg.path)
+        if _missing or _stale:
+            print(f"                ⚠️ 比当前版本少 {len(_missing)} 个配置项"
+                  + (f"、多 {len(_stale)} 个废弃项" if _stale else "")
+                  + " -> 跑 `python -m nlnotes init --upgrade` 补齐")
+            if _missing:
+                print(f"                   缺少: {', '.join(_missing[:8])}"
+                      + (" ..." if len(_missing) > 8 else ""))
     print(f"课程根目录    : {cfg.source_root}  "
           f"{'✅ 存在' if cfg.source_root.exists() else '❌ 不存在'}")
     print(f"笔记输出目录  : {cfg.notes_dir}")
@@ -582,12 +592,68 @@ def cmd_cost(args) -> int:
     return 0
 
 
+def config_diff(path=None) -> tuple[list[str], list[str]]:
+    """返回 (配置文件缺少的新增项, 配置文件里已不存在的旧项)。"""
+    from nlnotes.config import DEFAULTS
+    from nlnotes.util import read_json
+    p = path or DEFAULT_CONFIG_PATH
+    if not Path(p).exists():
+        return [], []
+    try:
+        user = read_json(p)
+    except Exception:
+        return [], []
+    missing = [k for k in DEFAULTS if k not in user]
+    stale = [k for k in user if k not in DEFAULTS]
+    return missing, stale
+
+
 def cmd_init(args) -> int:
-    """把示例配置复制成 config/pipeline.json。"""
+    """生成 config/pipeline.json;--upgrade 为已有配置补齐新增项。"""
+    from nlnotes.config import DEFAULTS
+    from nlnotes.util import read_json, write_json
+
     example = DEFAULT_CONFIG_PATH.parent / "pipeline.example.json"
-    if DEFAULT_CONFIG_PATH.exists() and not args.force:
-        print(f"{DEFAULT_CONFIG_PATH} 已存在(加 --force 覆盖)")
+
+    if args.upgrade:
+        if not DEFAULT_CONFIG_PATH.exists():
+            print(f"{DEFAULT_CONFIG_PATH} 还不存在,请先运行 python -m nlnotes init")
+            return 1
+        user = read_json(DEFAULT_CONFIG_PATH)
+        missing, stale = config_diff()
+        if not missing and not stale:
+            print(f"配置已是最新,没有需要补齐的项({len(user)} 项)。")
+            return 0
+        merged = {k: user.get(k, v) for k, v in DEFAULTS.items()}   # 保留你改过的值
+        backup = DEFAULT_CONFIG_PATH.with_suffix(".json.bak")
+        shutil.copyfile(DEFAULT_CONFIG_PATH, backup)
+        write_json(DEFAULT_CONFIG_PATH, merged)
+        print(f"已升级 {DEFAULT_CONFIG_PATH}(原文件备份为 {backup.name})")
+        if missing:
+            print(f"\n补齐了 {len(missing)} 个新增配置项(取默认值):")
+            for k in missing:
+                print(f"  + {k} = {json.dumps(DEFAULTS[k], ensure_ascii=False)}")
+        if stale:
+            print(f"\n移除了 {len(stale)} 个已废弃的项:{stale}")
+        print("\n你原先改过的值都保留了。各项含义见 config/pipeline.example.json 的注释"
+              "与 docs/02-流水线详解.md。")
         return 0
+
+    if DEFAULT_CONFIG_PATH.exists() and not args.force:
+        missing, stale = config_diff()
+        print(f"{DEFAULT_CONFIG_PATH} 已存在。")
+        if missing or stale:
+            print(f"\n⚠️ 它比当前版本少 {len(missing)} 个配置项"
+                  + (f"、多 {len(stale)} 个已废弃项" if stale else "") + "。")
+            if missing:
+                print(f"   缺少:{', '.join(missing[:10])}"
+                      + (" ..." if len(missing) > 10 else ""))
+            print("\n   补齐(会保留你改过的值,并备份原文件):")
+            print("     python -m nlnotes init --upgrade")
+        else:
+            print("配置已是最新。要完全重置请加 --force。")
+        return 0
+
     DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(example, DEFAULT_CONFIG_PATH)
     print(f"已生成 {DEFAULT_CONFIG_PATH},请修改 source_root 为你的课程目录。")
@@ -603,8 +669,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"nlnotes {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("init", help="生成 config/pipeline.json")
-    sp.add_argument("--force", action="store_true")
+    sp = sub.add_parser("init", help="生成 config/pipeline.json;--upgrade 补齐新增配置项")
+    sp.add_argument("--upgrade", action="store_true",
+                    help="为已有配置补齐新增项(保留你改过的值,自动备份)")
+    sp.add_argument("--force", action="store_true", help="完全重置为默认配置")
     sp.set_defaults(func=cmd_init)
 
     sp = sub.add_parser("doctor", help="体检:依赖、字体、路径")

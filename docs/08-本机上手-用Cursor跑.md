@@ -156,13 +156,27 @@ git pull
 > (`Python3-cursor-networklessons-...`),要把**它里面的内容**覆盖进 `D:\Python3`,
 > 而不是把整个文件夹丢进去变成 `D:\Python3\Python3-cursor-...`。
 
-**更新完如果改动涉及抽取阶段**(比如噪声清理、图片参数),必须加 `--force` 重跑,
-否则会直接复用旧的抽取结果:
+**更新完必须做两件事:**
 
-```powershell
-.\.venv\Scripts\python.exe -m nlnotes extract --path OSPF --limit 3 --force
-.\.venv\Scripts\python.exe -m nlnotes tasks --path OSPF --limit 3 --force
-```
+1. **补齐配置文件的新增项。** `config/pipeline.json` 是你第一次 `init` 时的快照,
+   新版本增加的配置项不会自动出现在里面(功能会用默认值兜底,但你看不到也改不了):
+
+   ```powershell
+   .\.venv\Scripts\python.exe -m nlnotes init --upgrade
+   ```
+
+   它保留你改过的所有值,只补缺少的项,并备份原文件。
+   `init` 与 `doctor` 都会主动提示配置是否为旧版。
+
+2. **如果改动涉及抽取阶段**(噪声清理、图片参数、OCR),必须加 `--force` 重跑,
+   否则会直接复用旧的抽取结果:
+
+   ```powershell
+   .\.venv\Scripts\python.exe -m nlnotes extract --force
+   .\.venv\Scripts\python.exe -m nlnotes tasks --force
+   ```
+
+   `tasks --force` 只重写任务包的输入文件,**不会动已写好的 `OUTPUT/note.json`**。
 
 ### 1.2 Python 与依赖
 

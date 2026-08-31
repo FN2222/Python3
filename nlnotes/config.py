@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -282,8 +283,13 @@ def load_config(path: str | os.PathLike[str] | None = None,
         user = json.loads(chosen.read_text(encoding="utf-8-sig"))
         unknown = sorted(set(user) - set(DEFAULTS))
         if unknown:
-            raise ValueError(f"配置文件包含未知字段: {unknown}(请对照 config/pipeline.example.json)")
-        cfg.data.update(user)
+            # 只警告、不中断 —— 否则升级版本后配置里留了废弃字段,
+            # 连 doctor 都跑不起来,用户没法自查也没法被引导去修。
+            print(f"[警告] 配置文件里有 {len(unknown)} 个当前版本不认识的字段,已忽略: "
+                  f"{unknown[:8]}{' ...' if len(unknown) > 8 else ''}\n"
+                  f"        跑 `python -m nlnotes init --upgrade` 可以清理并补齐新增项。",
+                  file=sys.stderr)
+        cfg.data.update({k: v for k, v in user.items() if k in DEFAULTS})
         cfg.path = chosen
 
     for key, env in (("source_root", "NLNOTES_SOURCE_ROOT"),

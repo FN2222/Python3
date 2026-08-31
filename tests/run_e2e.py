@@ -406,6 +406,45 @@ def main() -> int:
     check("知识点密度" in proc.stdout and "引用校验通过率" in proc.stdout,
           "stats 汇总质量指标(可用于对比不同模型)")
 
+    print("\n[7.25/8] 配置升级:补齐新增项、保留自定义值")
+    up_cfg = TMP / "old-style-config.json"
+    base_up = json.loads((ROOT / "config" / "pipeline.example.json")
+                         .read_text(encoding="utf-8"))
+    removed = ["group_mode", "selection_file", "tesseract_cmd"]
+    for k in removed:
+        base_up.pop(k, None)
+    base_up["obsolete_key_from_old_version"] = 123
+    base_up.update({"source_root": str(SRC), "build_dir": str(BUILD),
+                    "notes_dir": str(NOTES), "figure_ocr": True})
+    # init --upgrade 只认默认路径 config/pipeline.json,所以临时接管它
+    real_cfg = ROOT / "config" / "pipeline.json"
+    real_backup = real_cfg.read_text(encoding="utf-8") if real_cfg.exists() else None
+    try:
+        real_cfg.write_text(json.dumps(base_up, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+        proc = run(["init"])
+        check("少 3 个配置项" in proc.stdout, "init 能发现配置比当前版本旧")
+        check("init --upgrade" in proc.stdout, "并给出补齐命令")
+        proc = run(["doctor"])
+        check("init --upgrade" in proc.stdout, "doctor 也提示配置过期")
+        proc = run(["init", "--upgrade"])
+        check("补齐了 3 个新增配置项" in proc.stdout, "补齐了缺少的新增项")
+        check("移除了 1 个已废弃的项" in proc.stdout, "移除了已废弃的项")
+        upgraded = json.loads(real_cfg.read_text(encoding="utf-8"))
+        check(all(k in upgraded for k in removed), "新增项都补上了")
+        check(upgraded["figure_ocr"] is True and upgraded["source_root"] == str(SRC),
+              "原先改过的值被保留")
+        check("obsolete_key_from_old_version" not in upgraded, "废弃项被清掉")
+        check((ROOT / "config" / "pipeline.json.bak").exists(), "升级前自动备份")
+        proc = run(["init"])
+        check("配置已是最新" in proc.stdout, "升级后 init 报告已是最新")
+    finally:
+        (ROOT / "config" / "pipeline.json.bak").unlink(missing_ok=True)
+        if real_backup is None:
+            real_cfg.unlink(missing_ok=True)
+        else:
+            real_cfg.write_text(real_backup, encoding="utf-8")
+
     print("\n[7.3/8] 图内文字 OCR(装了 tesseract 才测)")
     import shutil as _sh
     if not _sh.which("tesseract"):
