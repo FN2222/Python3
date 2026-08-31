@@ -164,11 +164,29 @@ def cmd_next(args) -> int:
     cfg = _cfg(args)
     items = select_items(cfg, args.ids, args.filter_path, None)
     pending = pending_items(cfg, items)
+    batch = pending[:args.count]
+
+    if args.ids_only:
+        for it in batch:
+            print(it["id"])
+        return 0
+    if args.json:
+        print(json.dumps({
+            "pending_total": len(pending),
+            "items": [{"id": it["id"], "title": it["title"],
+                       "rel_path": it["rel_path"],
+                       "task": str(cfg.task_dir(it["id"]) / "TASK.md"),
+                       "output": str(cfg.task_dir(it["id"]) / "OUTPUT" / "note.json")}
+                      for it in batch],
+        }, ensure_ascii=False, indent=2))
+        return 0
+
     if not pending:
         print("🎉 所有 PDF 都已产出 note.json。")
+        print("下一步:build 出笔记,再用 groups / build-group 出面试复习笔记。")
         return 0
-    print(f"剩余 {len(pending)} 个待撰写,接下来 {min(args.count, len(pending))} 个:\n")
-    for it in pending[:args.count]:
+    print(f"剩余 {len(pending)} 个待撰写,接下来 {len(batch)} 个:\n")
+    for it in batch:
         task = cfg.task_dir(it["id"]) / "TASK.md"
         state = "任务包已就绪" if task.exists() else "⚠️ 任务包缺失,先跑 tasks"
         print(f"- id: {it['id']}\n  课程: {it['course_path_display']}\n"
@@ -706,6 +724,8 @@ def build_parser() -> argparse.ArgumentParser:
     _common(sp)
     _select(sp)
     sp.add_argument("--count", type=int, default=3)
+    sp.add_argument("--json", action="store_true", help="输出机器可读 JSON(便于脚本/AI 消费)")
+    sp.add_argument("--ids-only", action="store_true", help="只输出 pdf_id,一行一个")
     sp.set_defaults(func=cmd_next)
 
     sp = sub.add_parser("verify", help="校验 note.json(反臆想门禁)")
