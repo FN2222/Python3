@@ -64,7 +64,9 @@ def _figures_md(index: SourceIndex, task_dir: Path, extract_dir: Path) -> str:
 def _glossary_md(hits: list[dict[str, Any]]) -> str:
     lines = ["# 本章术语与统一译名", "",
              "以下术语在本章原文中真实出现。写笔记时**必须使用 `中文译名` 列的译法**,",
-             "首次出现写成 `中文译名(English)`,之后可只用中文或英文缩写。", "",
+             "首次出现写成 `中文译名(English)`。",
+             "**缩写仅当本章原文出现过该缩写时才能用**(原文只写全称就写全称;",
+             "`terms[].en` 也必须是本章原文的实际用词,不要自行展开或缩写)。", "",
              "| 英文 | 中文译名 | 首次出现页 | 分类 |", "| --- | --- | --- | --- |"]
     for h in hits:
         lines.append(f"| {h['en']} | {h['zh']} | {h['first_page'] or '-'} | {h['category'] or '-'} |")
@@ -141,16 +143,31 @@ TASK_MD = """# 制作任务 — {title}
 
 `sections[].points[]` 每一项都要:
 
-- `text_en_quote`: 从 `source-text.md` **逐字复制**的英文原句(可用 ` ... ` 省略中间部分),
+- `text_en_quote`: 从 `source-text.md` **同一页、连续的一段**逐字复制,
   长度 ≥ 12 字符。门禁会把它和你声明的那一页做模糊比对,阈值 **{quote_threshold}**。
+  ` ... ` 只允许省略**同一句话内部**的从句;禁止跨 `[[p.N]]` 拼两页,
+  禁止用省略号把命令输出里不相邻的行拼成一句。需要两处原文就写两条 point。
 - `page`: 该句所在页码(1 ~ {pages_total})。
 - `text_zh`: 这句话的中文讲解。**只能翻译/解释 `text_en_quote` 里已有的信息**,
   不得添加原文没有的例子、数字、协议、结论、生产经验。
+- `kind`: 只能是 `fact` / `definition` / `mechanism` / `step` / `caveat` /
+  `example` / `command`。**不要填 `process`**(那是费曼题目的 `type`)。
+- `detail_zh`: `mechanism` / `step` / `caveat` / `definition` **必须填**,
+  把机制、前提、例外讲透(仍只能用原文)。全章目标:密度 ≥ 3.0 条/正文页,
+  至少约 1/4 的知识点有深入说明。不要贴着 2.0 门槛停。
 
 ### 3.2 禁止出现原文没有的技术词与数字
 
 门禁会扫描你所有中文字段里的英文单词、IP 地址、数字(≥2 位),
 逐个检查是否出现在原文中。**编造一个协议名、一个定时器数值、一个 IP,都会直接失败。**
+
+特别容易踩的坑:
+
+- 原文只写全称(`area border router`)就不要自行缩成 `ABR`;原文只写 `DR` 就不要在
+  `terms[].en` 里展开成本章没出现的 `Designated Router`
+- 掩码写法不许换算:原文是 `255.255.255.0` 就不要写成 `/24`,反之亦然
+- 中文字段不要写原文没有的 `vs`;讲解里不要出现 `fig-p001-1` 这种 figure_id
+- 本章边界用「本章不涉及 X」,不要写禁用词「超出本章」
 
 ### 3.3 禁止发散措辞
 
@@ -234,7 +251,8 @@ TASK_MD = """# 制作任务 — {title}
 2. `questions`:**{min_q} ~ {max_q} 题**,每题必须含
    `q_zh` / `q_en` / `answer_zh` / `answer_en` / `source_pages` / `evidence_quote`。
    - 中英文必须是**同一道题**的两个语言版本,不能是两道不同的题。
-   - `answer_en` 应尽量贴合原文表述;`answer_zh` 是它的中文版。
+   - `answer_en` 应尽量贴合原文表述;`answer_zh` 是它的中文版,至少 25 字。
+   - `must_master[].why_zh` 至少 15 字。
    - `type` 至少覆盖 {required_types};建议按 `difficulty` 1→3 递进。
    - **题目不得超纲**:凡是本章原文没讲的,不能出题。
 3. `blind_spots_zh`:本章最容易卡住的点(仍须来自原文内容)。
@@ -253,8 +271,9 @@ python -m nlnotes build --id {pdf_id}
 
 | 报错 | 原因 | 处理 |
 | --- | --- | --- |
-| `引用与原文不匹配` | `text_en_quote` 不是逐字复制,或页码写错 | 回到 `source-text.md` 重新复制 |
-| `无原文依据的 token` | 中文里出现了原文没有的词/数字 | 删掉该词,或改用原文里的说法 |
+| `引用与原文不匹配` | `text_en_quote` 跨页、拼接了不相邻的命令行、或页码写错 | 同一页连续复制;两条原文就写两条 point |
+| `无原文依据的 token` | 擅自缩写、换算掩码、写了 `vs` / figure_id、或编造了词 | 改用原文里的说法 |
+| `schema 不合格` | `kind` 误填 `process`,或 `why_zh` / `answer_zh` 太短 | 对照 `note.schema.json` |
 | `figure_id 不存在` | 图 id 写错 | 对照 `figures.md` |
 | `覆盖度不足` | 漏掉大段内容 | 补充对应页的 sections/points |
 | `引用页码超范围` | 页码 > {pages_total} | 修正页码 |

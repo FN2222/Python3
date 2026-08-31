@@ -248,7 +248,9 @@ def format_feedback(report: dict[str, Any], max_items: int = 30) -> str:
     if extra > 0:
         lines.append(f"...(还有 {extra} 条同类错误,请一并修正)")
     lines += ["", "注意:不要删减内容来规避错误(会触发覆盖度不足);",
-              "不要改动门禁配置;重新输出**完整**的 note.json。"]
+              "不要改动门禁配置;重新输出**完整**的 note.json。",
+              "引用必须同页连续,不要跨页或拼接不相邻的命令行;",
+              "不要自行发明缩写或换算掩码;points[].kind 不要填 process。"]
     return "\n".join(lines)
 
 
