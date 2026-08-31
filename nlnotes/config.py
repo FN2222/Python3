@@ -33,6 +33,13 @@ DEFAULTS: dict[str, Any] = {
     "vector_min_cluster_area": 12000,  # 图形区域最小面积(pt²)
     "vector_min_cluster_width_pt": 60.0,   # 图形区域最小宽度
     "vector_min_cluster_height_pt": 40.0,  # 图形区域最小高度
+    # 网页导出 PDF 里有三类东西很像图,下面这几项负责挡掉:
+    #   页面装饰(搜索框/侧边栏目录框/深色模式按钮)—— 靠"区域内是否含被过滤的导航文字"识别
+    #   整页正文(内容外框 + 项目符号)—— 靠长文本行数与占页比例识别
+    #   分隔线/表格边框 —— 靠"面积越大要求越多图形对象"识别
+    "vector_max_page_ratio": 0.55,         # 图形区域占页面面积的上限
+    "vector_max_long_text_lines": 3,       # 区域内长文本行达到该数量即判为正文块
+    "vector_area_per_extra_drawing": 40000.0,  # 面积每增加这么多,要求多 1 个图形对象
     "vector_cluster_margin_pt": 16.0,  # 相邻图形合并成一张图的间距容差
     # 矢量图的文字是独立文本对象,只按图形裁剪会把标签切掉(Input 1、Neuron、0 or 1
     # 这些就没了,图也就看不懂了)。下面几项控制"把紧邻的短标签一起框进来",

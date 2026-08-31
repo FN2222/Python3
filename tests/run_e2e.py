@@ -66,11 +66,13 @@ def main() -> int:
     # ---------------------------------------------------------------- 1
     print("\n[1/8] 生成合成课程 PDF(正常 + 扫描件 + 网页导出风格深目录)")
     sys.path.insert(0, str(ROOT / "tests"))
-    from make_sample_pdf import build, build_scanned, build_weblike, build_vector
+    from make_sample_pdf import (build, build_scanned, build_weblike, build_vector,
+                                 build_vector_traps)
     pdf = build(SRC)
     scanned = build_scanned(SRC)
     weblike = build_weblike(SRC)
     vector_pdf = build_vector(SRC)
+    traps_pdf = build_vector_traps(SRC)
     # 模拟 NetworkLessons 的交叉归档:同一节课出现在多个认证方向下
     dup_dir = SRC / "Cisco" / "CCNA 200-301" / "Unit 4 IP Connectivity" / "4.4 OSPF"
     dup_dir.mkdir(parents=True, exist_ok=True)
@@ -81,7 +83,7 @@ def main() -> int:
     print("\n[2/8] scan + extract + tasks")
     run(["prepare", *COMMON])
     manifest = load(BUILD / "manifest.json")
-    expected = 2 + len(weblike) + 1 + 1        # 正常 + 扫描件 + 网页风格 + 矢量图 + 重复副本
+    expected = 2 + len(weblike) + 1 + 1 + 1    # 正常+扫描件+网页风格+矢量图+陷阱页+重复副本
     check(manifest["count"] == expected,
           f"扫描到 {expected} 个 PDF(实际 {manifest['count']})")
     check(max(i["depth"] for i in manifest["items"]) >= 5,
@@ -130,6 +132,18 @@ def main() -> int:
         # 整张图(含右侧 Output 框)都要在框内 —— 连接线必须把两端合并成一张图
         w = vfigs[0]["bbox"][2] - vfigs[0]["bbox"][0]
         check(w > 250, f"连接线把图两端合并成一整张(宽度 {w:.0f}pt > 250)")
+
+    # --- 矢量误判必须挡掉:页面装饰 与 整页正文 ---
+    trap = next(i for i in manifest["items"] if "Data Center Challenges" in i["rel_path"])
+    tfigs = load(BUILD / "extract" / trap["id"] / "figures.json")["figures"]
+    tpages = {f["page"] for f in tfigs}
+    check(1 not in tpages, "页面装饰(搜索框+侧边栏目录)没有被误判成图")
+    check(2 not in tpages, "整页正文(外框+项目符号)没有被误判成图")
+    check(3 in tpages, "同一份 PDF 里真正的框图仍然抽得到(没有过滤过头)")
+    if 3 in tpages:
+        real = next(f for f in tfigs if f["page"] == 3)
+        rw = real["bbox"][2] - real["bbox"][0]
+        check(rw > 300, f"真框图完整(宽度 {rw:.0f}pt)")
 
     meta = load(BUILD / "extract" / pdf_id / "extract.json")
     check(meta["pages_total"] == 4, f"抽取到 4 页(实际 {meta['pages_total']})")
@@ -388,6 +402,10 @@ def main() -> int:
         check(not r["passed"], f"面试笔记拦住「{desc}」(错误码 {codes})")
 
     # ---------------------------------------------------------------- 7
+    proc = run(["stats", *COMMON])
+    check("知识点密度" in proc.stdout and "引用校验通过率" in proc.stdout,
+          "stats 汇总质量指标(可用于对比不同模型)")
+
     print("\n[7.4/8] 选课清单:只做指定方向")
     sel = ROOT / "config" / "selection.txt"
     sel_backup = sel.read_text(encoding="utf-8") if sel.exists() else None
@@ -397,6 +415,7 @@ def main() -> int:
                        encoding="utf-8")
         proc = run(["select", *COMMON])
         check("清单命中" in proc.stdout, "select --list 能预览命中情况")
+        check("每条规则各自命中多少" in proc.stdout, "预览列出每条规则的命中数")
         import re as _re
         m = _re.search(r"清单命中:\*\*(\d+)\*\*", proc.stdout)
         hit = int(m.group(1)) if m else -1
@@ -406,6 +425,25 @@ def main() -> int:
         check("Lesson 7" not in proc.stdout, "排除规则生效")
         proc = run(["select", "--init", "--force", *COMMON])
         check("已生成清单模板" in proc.stdout or sel.exists(), "select --init 能按课程库生成模板")
+
+        # 前缀匹配语义:Routing 不应命中 "Unit 2 Routing" 这类深层目录
+        sel.write_text("# 前缀匹配测试\n===== 装饰行不应被当成规则 =====\nRouting\n",
+                       encoding="utf-8")
+        proc = run(["select", *COMMON])
+        check("装饰行" not in proc.stdout.split("每条规则")[-1],
+              "`===== xxx =====` 装饰行被忽略,没当成规则")
+        import re as _re2
+        m2 = _re2.search(r"清单命中:\*\*(\d+)\*\*", proc.stdout)
+        check(m2 and int(m2.group(1)) == 0,
+              f"不含通配符时按前缀匹配:`Routing` 不会误命中深层的 Unit 2 Routing"
+              f"(命中 {m2.group(1) if m2 else '?'})")
+        check("命中 0 个" in proc.stdout, "对命中 0 个的规则给出告警")
+
+        # 想匹配任意层级要显式写通配符
+        sel.write_text("*Routing*\n", encoding="utf-8")
+        proc = run(["select", *COMMON])
+        m3 = _re2.search(r"清单命中:\*\*(\d+)\*\*", proc.stdout)
+        check(m3 and int(m3.group(1)) > 0, "写成 `*Routing*` 才匹配任意层级")
     finally:
         if sel_backup is None:
             sel.unlink(missing_ok=True)

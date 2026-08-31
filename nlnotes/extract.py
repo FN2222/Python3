@@ -62,10 +62,18 @@ class NoiseFilter:
             return True
         return any(p.search(t) for p in self.patterns)
 
-    def apply(self, lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def apply(self, lines: list[dict[str, Any]]
+              ) -> tuple[list[dict[str, Any]], list[list[float]]]:
+        """返回 (保留的行, 被丢弃行的 bbox 列表)。
+
+        被丢弃的 bbox 有额外用途:它标出了"页面装饰区"。矢量图识别时,
+        凡是和这些区域重叠的图形聚类都不是内容图(搜索框、侧边栏目录框、
+        深色模式按钮这类装饰会连成一片,看起来很像一张图)。
+        """
         if not self.enabled:
-            return lines
+            return lines, []
         kept: list[dict[str, Any]] = []
+        dropped_boxes: list[list[float]] = []
         toc_budget = 0
         for ln in lines:
             t = norm_space(ln["text"])
@@ -76,16 +84,18 @@ class NoiseFilter:
                 if TOC_ENTRY.match(t) and len(t) < 90 and not t.endswith((".", ":", ";")):
                     toc_budget -= 1
                     self._record(t)
+                    dropped_boxes.append(list(ln["bbox"]))
                     continue
                 toc_budget = 0
 
             if self._is_noise_line(t):
                 self._record(t)
+                dropped_boxes.append(list(ln["bbox"]))
                 if low in self.toc_markers:
                     toc_budget = self.toc_max
                 continue
             kept.append(ln)
-        return kept
+        return kept, dropped_boxes
 
     def _record(self, text: str) -> None:
         self.dropped += 1
@@ -97,8 +107,9 @@ class NoiseFilter:
                 "samples": self.dropped_samples}
 
 
-def _page_lines(page: "fitz.Page", noise: NoiseFilter | None = None) -> list[dict[str, Any]]:
-    """返回该页所有文本行:{text, bbox, size, mono}(已剔除站点导航噪声)。"""
+def _page_lines(page: "fitz.Page", noise: NoiseFilter | None = None
+                ) -> tuple[list[dict[str, Any]], list[list[float]]]:
+    """返回 (该页文本行, 被判为噪声的行的 bbox)。文本行已剔除站点导航噪声。"""
     out: list[dict[str, Any]] = []
     data = page.get_text("dict")
     for block in data.get("blocks", []):
@@ -118,7 +129,9 @@ def _page_lines(page: "fitz.Page", noise: NoiseFilter | None = None) -> list[dic
                 "mono": bool(fonts) and all(MONO_HINT.search(f or "") for f in fonts),
             })
     out.sort(key=lambda l: (round(l["bbox"][1], 1), l["bbox"][0]))
-    return noise.apply(out) if noise else out
+    if noise:
+        return noise.apply(out)
+    return out, []
 
 
 def _page_text(lines: list[dict[str, Any]]) -> str:
@@ -427,10 +440,56 @@ def _trim_off_paragraphs(clip: "fitz.Rect", lines: list[dict[str, Any]],
     return out
 
 
+def _looks_like_content_figure(cl: "fitz.Rect", members: int,
+                               lines: list[dict[str, Any]],
+                               noise_boxes: list[list[float]],
+                               page: "fitz.Page", cfg: Config) -> str | None:
+    """判断一个图形聚类到底是"内容图"还是"页面装饰/正文块"。
+
+    返回 None 表示是图;返回字符串表示拒绝原因(便于诊断)。
+
+    网页导出的 PDF 里有三类东西很像图,必须挡掉:
+      1. **页面装饰** —— 搜索框、深色模式按钮、侧边栏目录框,它们都有边框矩形,
+         纵向排列时会连成一大片。判据:该区域里有被噪声过滤丢掉的文字。
+      2. **整页正文** —— 内容外框 + 项目符号会聚成接近整页的一块。
+         判据:区域内长文本行太多,或占页面比例过大。
+      3. **分隔线/表格边框** —— 判据:图形对象太少(且随面积放大要求更多)。
+    """
+    page_area = page.rect.get_area() or 1
+    ratio = cl.get_area() / page_area
+    if ratio > float(cfg["vector_max_page_ratio"]):
+        return f"占页面 {ratio:.0%},超过 {float(cfg['vector_max_page_ratio']):.0%}"
+
+    # 装饰区:和被丢弃的导航文字重叠
+    for nb in noise_boxes:
+        if cl.intersects(fitz.Rect(nb)):
+            return "区域内含站点导航文字(搜索框/侧边栏目录等页面装饰)"
+
+    # 正文块:长文本行太多
+    long_lines = 0
+    for ln in lines:
+        text = norm_space(ln["text"])
+        if len(text) <= int(cfg["vector_label_max_chars"]):
+            continue
+        if cl.intersects(fitz.Rect(ln["bbox"])):
+            long_lines += 1
+    if long_lines >= int(cfg["vector_max_long_text_lines"]):
+        return f"区域内有 {long_lines} 行长文本,更像正文而不是图"
+
+    # 密度:面积越大,要求的图形对象越多
+    need = int(cfg["vector_min_cluster_drawings"]) + \
+        int(cl.get_area() / max(1.0, float(cfg["vector_area_per_extra_drawing"])))
+    if members < need:
+        return f"图形对象太少({members} < {need}),更像分隔线或边框"
+    return None
+
+
 def _vector_figures(page: "fitz.Page", pno: int, lines: list[dict[str, Any]],
                     cfg: Config, out_dir: Path, taken: list[list[float]],
-                    seen: set[str]) -> list[dict[str, Any]]:
+                    seen: set[str],
+                    noise_boxes: list[list[float]] | None = None) -> list[dict[str, Any]]:
     """渲染矢量绘制的拓扑图区域(部分 PDF 的拓扑图不是位图,而是矩形+箭头画出来的)。"""
+    noise_boxes = noise_boxes or []
     try:
         drawings = page.get_drawings()
     except Exception:
@@ -443,18 +502,16 @@ def _vector_figures(page: "fitz.Page", pno: int, lines: list[dict[str, Any]],
     figs: list[dict[str, Any]] = []
     idx = 0
     for cl, members in sorted(clusters, key=lambda x: (x[0].y0, x[0].x0)):
-        # 成员太少的多半是分隔线、表格边框、小装饰,不是图
-        if members < int(cfg["vector_min_cluster_drawings"]):
-            continue
         if cl.get_area() < cfg["vector_min_cluster_area"]:
             continue
         if cl.width < float(cfg["vector_min_cluster_width_pt"]) or \
                 cl.height < float(cfg["vector_min_cluster_height_pt"]):
             continue
-        if cl.get_area() > page.rect.get_area() * 0.92:      # 整页边框
-            continue
         if any(fitz.Rect(t).intersects(cl) and
                (fitz.Rect(t) & cl).get_area() > cl.get_area() * 0.5 for t in taken):
+            continue
+        reject = _looks_like_content_figure(cl, members, lines, noise_boxes, page, cfg)
+        if reject:
             continue
 
         box = _expand_to_labels(cl, lines,
@@ -511,7 +568,9 @@ def extract_one(cfg: Config, item: dict[str, Any], force: bool = False) -> dict[
     doc = fitz.open(stream=read_bytes(item["abs_path"]), filetype="pdf")
     noise = NoiseFilter(cfg)
     try:
-        all_lines = [_page_lines(p, noise) for p in doc]
+        per_page = [_page_lines(p, noise) for p in doc]
+        all_lines = [x[0] for x in per_page]
+        all_noise_boxes = [x[1] for x in per_page]
         body_size = _body_font_size(all_lines)
 
         pages: list[dict[str, Any]] = []
@@ -525,7 +584,8 @@ def extract_one(cfg: Config, item: dict[str, Any], force: bool = False) -> dict[
             vector: list[dict[str, Any]] = []
             if cfg["extract_vector_figures"]:
                 vector = _vector_figures(page, pno, lines, cfg, fig_dir,
-                                         [f["bbox"] for f in raster], seen_digests)
+                                         [f["bbox"] for f in raster], seen_digests,
+                                         all_noise_boxes[pno - 1])
             page_figs = raster + vector
             for f in page_figs:
                 f["ocr_text"] = _ocr_image(cfg, fig_dir / f["file"])

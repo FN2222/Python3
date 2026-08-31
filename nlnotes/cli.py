@@ -463,6 +463,67 @@ def cmd_write_group(args) -> int:
     return 0 if all(s.get("passed") for s in stats) else 1
 
 
+def cmd_stats(args) -> int:
+    """汇总已完成笔记的客观质量指标 —— 用来对比不同模型的产出质量。"""
+    from nlnotes.scan import select_items
+    cfg = _cfg(args)
+    items = select_items(cfg, args.ids, args.filter_path, None)
+    rows = []
+    for it in items:
+        rep = cfg.report_dir() / f"{it['id']}.json"
+        if not rep.exists():
+            continue
+        try:
+            r = read_json(rep)
+        except Exception:
+            continue
+        st = r.get("stats") or {}
+        if not st:
+            continue
+        rows.append({"id": it["id"], "title": it["title"], "passed": r.get("passed"),
+                     "errors": r.get("error_count", 0), **st})
+
+    if not rows:
+        print("还没有校验报告。先跑 verify 或 build。")
+        return 0
+
+    def avg(key, default=0.0):
+        vals = [x.get(key) for x in rows if isinstance(x.get(key), (int, float))]
+        return sum(vals) / len(vals) if vals else default
+
+    passed = sum(1 for x in rows if x["passed"])
+    print(f"已校验章节: {len(rows)}  通过 {passed}  未通过 {len(rows) - passed}")
+    print()
+    print("质量指标(平均值,用来对比不同模型的产出):")
+    print(f"  知识点密度      : {avg('points_per_content_page'):.2f} 条/正文页"
+          f"   (门槛 {cfg['min_points_per_content_page']})")
+    print(f"  每章知识点总数  : {avg('points_total'):.1f}")
+    print(f"  填了深入说明的  : {avg('points_with_detail'):.1f} 条/章")
+    print(f"  内容覆盖率      : {avg('coverage_ratio') * 100:.1f}%"
+          f"   (门槛 {float(cfg['coverage_min_ratio']) * 100:.0f}%)")
+    print(f"  引用校验通过率  : "
+          f"{avg('quotes_matched') / max(0.01, avg('quotes_checked')) * 100:.1f}%")
+    print(f"  每章引用条数    : {avg('quotes_checked'):.1f}")
+    print(f"  拓扑图引用      : {avg('figures_used'):.1f} / {avg('figures_available'):.1f} 张")
+    print(f"  自制图数量      : {avg('visuals'):.1f} 个/章")
+    print(f"  费曼题目数      : {avg('questions'):.1f} 道/章")
+    print(f"  无原文依据 token: {avg('ungrounded_tokens'):.2f} 个/章")
+    print()
+    print("怎么看这些数:密度、覆盖率、自制图数量越高说明笔记越扎实;")
+    print("             未通过数与无依据 token 越高说明模型越吃力(会更耗额度)。")
+
+    if args.detail:
+        print()
+        print(f"{'状态':<6}{'密度':>6}{'覆盖':>7}{'图':>5}{'题':>4}  章节")
+        for x in sorted(rows, key=lambda r: r.get("points_per_content_page", 0)):
+            print(f"{'✅' if x['passed'] else '❌':<6}"
+                  f"{x.get('points_per_content_page', 0):>6.1f}"
+                  f"{x.get('coverage_ratio', 0) * 100:>6.0f}%"
+                  f"{x.get('figures_used', 0):>5}"
+                  f"{x.get('questions', 0):>4}  {x['title'][:50]}")
+    return 0
+
+
 def cmd_cost(args) -> int:
     """汇总 build/write-log.jsonl 的实际用量与费用。"""
     import json as _json
@@ -640,6 +701,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--force", action="store_true")
     sp.add_argument("--dry-run", action="store_true")
     sp.set_defaults(func=cmd_write_group)
+
+    sp = sub.add_parser("stats", help="汇总已完成笔记的质量指标(用来对比不同模型)")
+    _common(sp)
+    _select(sp)
+    sp.add_argument("--detail", action="store_true", help="逐章列出")
+    sp.set_defaults(func=cmd_stats)
 
     sp = sub.add_parser("cost", help="汇总 AI 撰写的实际 token 用量与费用")
     _common(sp)

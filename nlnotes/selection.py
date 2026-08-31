@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from pathlib import Path
 from typing import Any
 
@@ -32,12 +33,21 @@ TEMPLATE_HEADER = """# nlnotes 选课清单
 #       都会自动遵守这个清单,不需要每次再写 --path。
 #
 # 写法:
-#   Routing & Switching/OSPF      目录名片段,包含即匹配(不区分大小写)
-#   Cisco/CCNP ENCOR*/Unit 2*     含 * 或 ? 时,按通配符匹配整条相对路径
+#   Routing & Switching/OSPF      **路径前缀**匹配:只命中这个目录及其子目录
+#   Cisco/CCNP ENCOR*/Unit 2*     含 * 或 ? 时按通配符匹配整条相对路径
+#   */OSPF/*                      想匹配任意层级,必须显式写通配符
 #   !*/Labs/*                     ! 开头表示排除;排除优先于包含
 #   # 这一行是注释
 #
+# 注意:不含通配符时是**前缀匹配,不是子串匹配**。
+#       所以 `Troubleshooting` 只命中顶层的 Troubleshooting/ 目录,
+#       不会误命中 Cisco/CCNP ENARSI .../Unit 6 Troubleshooting/。
+#       要匹配任意层级请写 `*Troubleshooting*`。
+#
 # 规则:只要有一条包含规则,就只处理匹配上的;全部注释掉则处理全部课程。
+#
+# ⚠️ 只取消**课程行**前面的 #,不要把 `===== xxx =====` 分隔行的 # 也删掉。
+#    (真删了也没关系,程序会忽略这类装饰行)
 #
 # 改完用这条命令预览命中了哪些:
 #   python -m nlnotes select --list
@@ -55,6 +65,9 @@ def selection_path(cfg: Config) -> Path:
     return p if p.is_absolute() else (REPO_ROOT / p)
 
 
+DECORATION = re.compile(r"^[=\-—~_*\s]+$")
+
+
 def load_rules(cfg: Config) -> tuple[list[str], list[str]]:
     """返回 (包含规则, 排除规则)。文件不存在或全是注释时,包含规则为空表示不过滤。"""
     p = selection_path(cfg)
@@ -66,6 +79,10 @@ def load_rules(cfg: Config) -> tuple[list[str], list[str]]:
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
+        # 模板里的 `===== Cisco(992 章)=====` 是分隔装饰行。用户取消注释时
+        # 常把整块的 # 一起删掉,连分隔行也变成了"规则"。这里直接忽略这类行。
+        if line.startswith("=") or DECORATION.match(line):
+            continue
         if line.startswith("!"):
             pat = line[1:].strip()
             if pat:
@@ -76,11 +93,27 @@ def load_rules(cfg: Config) -> tuple[list[str], list[str]]:
 
 
 def _matches(rel_path: str, pattern: str) -> bool:
+    """匹配规则。
+
+    **不含通配符时按"路径前缀"匹配**,而不是任意子串 —— 这一点很关键:
+    如果按子串匹配,`Troubleshooting` 会命中
+    `Cisco/CCNP ENARSI 300-410 v1.1/Unit 6 Troubleshooting/...`,
+    导致"我只选了 ASA 和 SD-WAN,结果 Cisco 命中了 116 章"这种意外。
+
+    想匹配任意层级,请显式写通配符:`*/OSPF/*` 或 `*OSPF*`。
+    """
     target = rel_path.replace("\\", "/").lower()
-    pat = pattern.replace("\\", "/").lower()
+    pat = pattern.replace("\\", "/").strip("/").lower()
+    if not pat:
+        return False
     if any(ch in pat for ch in "*?["):
         return fnmatch.fnmatch(target, pat) or fnmatch.fnmatch(target, f"*{pat}*")
-    return pat in target
+    return target == pat or target.startswith(pat + "/")
+
+
+def hit_counts(items: list[dict[str, Any]], patterns: list[str]) -> dict[str, int]:
+    """每条规则各自命中多少个文件 —— 用来发现写错的规则(命中 0 个)。"""
+    return {p: sum(1 for it in items if _matches(it["rel_path"], p)) for p in patterns}
 
 
 def apply(cfg: Config, items: list[dict[str, Any]],
@@ -156,12 +189,28 @@ def preview(cfg: Config) -> str:
     lines = ["# 选课清单预览", "",
              f"- 清单文件:`{selection_path(cfg)}`"
              + ("" if selection_path(cfg).exists() else "(**不存在** —— 当前处理全部课程)"),
-             f"- 包含规则:{len(includes)} 条" + (f" → {includes}" if includes else "(无,处理全部)"),
-             f"- 排除规则:{len(excludes)} 条" + (f" → {excludes}" if excludes else ""),
-             "",
              f"- 课程库总数:**{len(items)}**",
              f"- 清单命中:**{len(kept)}**",
              ""]
+
+    if includes or excludes:
+        inc_hits = hit_counts(items, includes)
+        exc_hits = hit_counts(items, excludes)
+        lines += ["## 每条规则各自命中多少", "",
+                  "| 类型 | 规则 | 命中 |", "| --- | --- | --- |"]
+        for pat, n in inc_hits.items():
+            flag = " ⚠️ 命中 0 个,规则可能写错了" if n == 0 else ""
+            lines.append(f"| 包含 | `{pat}` | {n}{flag} |")
+        for pat, n in exc_hits.items():
+            flag = " ⚠️ 命中 0 个" if n == 0 else ""
+            lines.append(f"| 排除 | `{pat}` | {n}{flag} |")
+        zero = [p for p, n in inc_hits.items() if n == 0]
+        if zero:
+            lines += ["", f"> ⚠️ 有 {len(zero)} 条包含规则一个都没命中:"
+                      + "、".join(f"`{p}`" for p in zero[:6]),
+                      "> 常见原因:目录名写错;或者想匹配任意层级但没写通配符"
+                      "(改成 `*关键字*`)。"]
+        lines.append("")
     if not kept:
         lines += ["> ⚠️ 一个都没命中。检查规则里的目录名是否和实际路径一致"
                   "(可以只写片段,如 `OSPF`)。", ""]

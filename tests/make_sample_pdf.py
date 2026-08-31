@@ -287,6 +287,91 @@ def build_vector(out_dir: Path) -> Path:
     return pdf
 
 
+def build_vector_traps(out_dir: Path) -> Path:
+    """专门复现"矢量图误判"的两种陷阱页,用来验证过滤规则。
+
+    真实课程 PDF(网页导出)里有两类东西很像图,曾被错误抽成"图":
+      第 1 页:页面装饰 —— 搜索框 + 深色模式按钮 + 侧边栏 Lesson Contents 目录框
+      第 2 页:整页正文 —— 内容外框 + 大量项目符号行
+      第 3 页:一张**真的**框图,必须仍然抽得到(防止过滤过头)
+    """
+    out_dir = out_dir / "Data Center"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pdf = out_dir / "011 - Data Center Challenges and Requirements.pdf"
+    c = canvas.Canvas(str(pdf), pagesize=A4)
+
+    # ---------- 第 1 页:页面装饰 ----------
+    c.setStrokeColorRGB(0.85, 0.85, 0.85)
+    c.setFillColorRGB(0.96, 0.96, 0.96)
+    c.roundRect(2 * cm, H - 3.0 * cm, 15 * cm, 1.0 * cm, 6, fill=1, stroke=1)
+    c.setFillColorRGB(0.45, 0.45, 0.45)
+    c.setFont("Helvetica", 10)
+    c.drawString(2.4 * cm, H - 2.7 * cm, "Search …")
+    c.setFillColorRGB(0.1, 0.1, 0.1)
+    c.roundRect(2 * cm, H - 4.6 * cm, 1.0 * cm, 1.0 * cm, 4, fill=1, stroke=0)
+    c.setFillColorRGB(0, 0, 0)
+    c.setFont("Helvetica-Bold", 19)
+    c.drawString(2 * cm, H - 6.0 * cm, "Data Center Challenges and")
+    c.drawString(2 * cm, H - 6.9 * cm, "Requirements")
+    # 侧边栏目录框
+    c.setStrokeColorRGB(0.8, 0.8, 0.8)
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(2 * cm, H - 15.5 * cm, 6.5 * cm, 8.0 * cm, fill=1, stroke=1)
+    c.setFillColorRGB(0, 0, 0)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(2.3 * cm, H - 8.1 * cm, "Lesson Contents")
+    c.setFont("Helvetica", 8)
+    y = H - 8.9 * cm
+    for t in ["1. Requirements", "1.1. Agility", "1.2. Scalability", "1.3. Elasticity",
+              "1.4. Availability", "1.5. Cost", "1.6. Environment", "1.7. Power",
+              "1.8. Open Standards", "1.9. Security", "1.10. Automation", "2. Conclusion"]:
+        c.drawString(2.5 * cm, y, t)
+        y -= 0.5 * cm
+    c.showPage()
+
+    # ---------- 第 2 页:整页正文(带外框 + 项目符号) ----------
+    c.setStrokeColorRGB(0.9, 0.9, 0.9)
+    c.rect(1.6 * cm, 1.6 * cm, W - 3.2 * cm, H - 3.2 * cm, fill=0, stroke=1)
+    c.setFillColorRGB(0, 0, 0)
+    c.setFont("Helvetica", 10)
+    y = H - 2.6 * cm
+    for i in range(26):
+        c.circle(2.2 * cm, y + 0.1 * cm, 0.05 * cm, fill=1, stroke=0)
+        c.drawString(2.5 * cm, y,
+                     f"Real-Time Monitoring: continuous monitoring of network traffic {i}.")
+        y -= 0.62 * cm
+    c.showPage()
+
+    # ---------- 第 3 页:真的框图,必须仍能抽到 ----------
+    c.setFont("Helvetica", 11)
+    c.drawString(2 * cm, H - 2.2 * cm, "The following diagram shows the spine and leaf design.")
+    top = H - 4.0 * cm
+    xs = [3 * cm, 8 * cm, 13 * cm]
+    for i, name in enumerate(["Spine 1", "Spine 2", "Spine 3"]):
+        c.setFillColorRGB(0.05, 0.28, 0.55)
+        c.rect(xs[i], top, 3 * cm, 0.9 * cm, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica", 9)
+        c.drawString(xs[i] + 0.3 * cm, top + 0.32 * cm, name)
+    for i, name in enumerate(["Leaf 1", "Leaf 2", "Leaf 3"]):
+        by = top - 4.0 * cm
+        c.setFillColorRGB(0.09, 0.55, 0.24)
+        c.rect(xs[i], by, 3 * cm, 0.9 * cm, fill=1, stroke=0)
+        c.setFillColorRGB(1, 1, 1)
+        c.drawString(xs[i] + 0.3 * cm, by + 0.32 * cm, name)
+        c.setStrokeColorRGB(0.85, 0.12, 0.12)
+        c.setLineWidth(1.4)
+        for j in range(3):
+            c.line(xs[i] + 1.5 * cm, by + 0.9 * cm, xs[j] + 1.5 * cm, top)
+    c.setFillColorRGB(0, 0, 0)
+    c.setFont("Helvetica", 10)
+    c.drawString(2 * cm, top - 5.4 * cm, "Every leaf connects to every spine.")
+    c.showPage()
+    c.save()
+    print(f"已生成矢量误判陷阱测试 PDF: {pdf}")
+    return pdf
+
+
 def build_scanned(out_dir: Path) -> Path:
     """再造一份"扫描件"PDF(整页是图片、没有文本层),用来验证 audit 能把它剔除。"""
     out_dir = out_dir / "IGP" / "OSPF"
@@ -322,3 +407,5 @@ if __name__ == "__main__":
         build_weblike(target)
     if "--with-vector" in sys.argv:
         build_vector(target)
+    if "--with-traps" in sys.argv:
+        build_vector_traps(target)
