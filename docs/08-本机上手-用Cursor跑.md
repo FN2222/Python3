@@ -168,7 +168,7 @@ Remove-Item $t -Recurse -Force
 .\.venv\Scripts\python.exe -m nlnotes doctor
 ```
 
-成功的话,`doctor` 第一行应显示 `nlnotes 1.1.2`(或更新)。然后就可以:
+成功的话,`doctor` 第一行应显示 `nlnotes 1.2.0`(或更新)。然后就可以:
 
 ```powershell
 .\scripts\Update.ps1 -UpgradeConfig

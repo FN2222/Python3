@@ -106,7 +106,7 @@ Cursor 里的 Grok 4.6 **没有可填写的 Key**,用法是会话批量写,见
 | `nlnotes/verify.py` | 章节笔记的 9 组门禁 | 覆盖率只统计正文小节页(`body_pages`),**不要**把测验页算进去,否则反超纲检查 `X011` 会失效 |
 | `nlnotes/groups.py` | 分组 + 面试复习笔记门禁 | `_iter_grounded_text` 决定哪些字段受原文约束;**`extension_*` 必须留在外面**,否则发散功能就废了 |
 | `nlnotes/audit.py` | PDF 体检 | 判定阈值在 config 的 `audit_*`;剔除清单写 `build/excluded.json`,由 `scan.select_items` 生效 |
-| `nlnotes/writer.py` | LLM 自动撰写闭环 | 兼容 OpenAI 协议;`extract_json` 要能容忍模型加代码块;错误必须原样回灌 |
+| `nlnotes/writer.py` | LLM 自动撰写闭环 | 兼容 OpenAI 协议;`extract_json` 要能容忍模型加代码块;错误必须原样回灌。1.2.0 起 `normalize_note`/`local_repair` 纠正 DeepSeek 枚举与 T002 terms,重试附上当前 JSON;**不要**为了过门禁自动灌水凑字数,也不要下调阈值 |
 | `nlnotes/visuals.py` | 动画/图渲染 | 所有外部工具(mmdc/dot/ffmpeg/OCR/图像 API)缺失时必须自动降级,不能抛异常中断 |
 | `nlnotes/assemble.py` | Markdown 组装 | 模板用 `StrictUndefined`,新增可选字段要在 `_normalize()` 里补默认值 |
 | `schemas/note.schema.json` | AI 输出契约 | `additionalProperties: false`,加字段要同时改 `_template()` 与 `_normalize()` |

@@ -312,6 +312,24 @@ def main() -> int:
     proc = run(["write", "--dry-run", "--force", "--id", pdf_id, *COMMON])
     check("成本预估" in proc.stdout, "--dry-run 只预估不发请求")
 
+    print("\n[6.5/8] DeepSeek 常见填错:本地纠正,不放宽门禁")
+    sys.path.insert(0, str(ROOT))
+    from nlnotes.writer import local_repair, normalize_note
+    sample = {
+        "sections": [{"points": [{"kind": "process"}, {"kind": "fact"}]}],
+        "feynman": {"questions": [{"type": "command"}, {"type": "concept"}]},
+        "terms": [{"en": "MD5"}, {"en": "Link State Advertisement"}],
+    }
+    nfix = normalize_note(sample)
+    check(nfix == 2, "纠正了 process 和 command 两处枚举")
+    check(sample["sections"][0]["points"][0]["kind"] == "step", "process → step")
+    check(sample["feynman"]["questions"][0]["type"] == "config", "command → config")
+    check(sample["sections"][0]["points"][1]["kind"] == "fact", "合法 kind 不动")
+    nterm = local_repair(sample, [{"code": "T002", "where": "terms[1]",
+                                   "message": "术语未在原文中出现"}])
+    check(nterm == 1 and len(sample["terms"]) == 1 and sample["terms"][0]["en"] == "MD5",
+          "只删除未出现的术语,不改内容")
+
     run(["diag", *COMMON])
     diag_md = BUILD / "diagnosis.md"
     check(diag_md.exists(), "生成诊断报告 build/diagnosis.md")

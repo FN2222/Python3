@@ -30,6 +30,31 @@ SYSTEM_PROMPT_PATH = REPO_ROOT / "prompts" / "00-system-中文笔记作者.md"
 GROUP_SYSTEM_PROMPT_PATH = REPO_ROOT / "prompts" / "50-面试复习.md"
 
 JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
+TERM_WHERE = re.compile(r"^terms\[(\d+)\]")
+
+POINT_KINDS = {"fact", "definition", "mechanism", "step", "caveat", "example", "command"}
+QUESTION_TYPES = {"concept", "process", "compare", "config", "troubleshoot", "calculation"}
+KIND_ALIASES = {
+    "process": "step", "procedure": "step", "concept": "definition",
+    "compare": "fact", "config": "command", "troubleshoot": "caveat",
+    "calculation": "fact", "cmd": "command", "cli": "command",
+}
+TYPE_ALIASES = {
+    "command": "config", "cmd": "config", "cli": "config",
+    "fact": "concept", "definition": "concept", "mechanism": "process",
+    "step": "process", "caveat": "concept", "example": "concept",
+    "procedure": "process",
+}
+
+HARD_RULES = """
+===== 输出前必须满足(违反即门禁失败) =====
+- questions[].type 只能是 concept / process / compare / config / troubleshoot / calculation;命令或配置题填 config,禁止填 command
+- points[].kind 只能是 fact / definition / mechanism / step / caveat / example / command;禁止填 process
+- text_zh ≥ 10 字; why_hard_zh 与 how_to_break_zh ≥ 20 字; answer_zh 与 answer_en ≥ 25 字;禁止口号短句
+- text_en_quote 必须是同一页内连续原文;禁止跨页、禁止用 ... 拼接不相邻的命令行
+- 不要把 LSA 展开成 Link State Advertisement,也不要把 DR 展开成 Designated Router(以本章原文实际用词为准)
+- 图上的 IP/网段必须先写入该图 labels_seen;terms[].en 必须是本章原文里出现过的词
+"""
 
 
 # ------------------------------------------------------------------ 工具
@@ -83,6 +108,43 @@ def extract_json(text: str) -> dict[str, Any]:
                     except json.JSONDecodeError:
                         break
     raise ValueError("模型回复里没有可解析的 JSON")
+
+
+def normalize_note(note: dict[str, Any]) -> int:
+    """把 DeepSeek 常填错的枚举改成合法值,不改动内容本身。返回修正次数。"""
+    n = 0
+    for sec in note.get("sections") or []:
+        for pt in sec.get("points") or []:
+            k = str(pt.get("kind") or "fact").strip()
+            if k not in POINT_KINDS:
+                pt["kind"] = KIND_ALIASES.get(k, "fact")
+                n += 1
+    fey = note.get("feynman") or {}
+    for q in fey.get("questions") or []:
+        t = str(q.get("type") or "concept").strip()
+        if t not in QUESTION_TYPES:
+            q["type"] = TYPE_ALIASES.get(t, "concept")
+            n += 1
+    return n
+
+
+def local_repair(note: dict[str, Any], errors: Any) -> int:
+    """不调用模型、不放宽门禁:只删掉非法术语条目。返回修正次数。"""
+    items = getattr(errors, "errors", None)
+    if items is None:
+        items = errors if isinstance(errors, list) else []
+    drop: set[int] = set()
+    for e in items:
+        if e.get("code") != "T002":
+            continue
+        m = TERM_WHERE.match(str(e.get("where") or ""))
+        if m:
+            drop.add(int(m.group(1)))
+    if not drop:
+        return 0
+    terms = note.get("terms") or []
+    note["terms"] = [t for i, t in enumerate(terms) if i not in drop]
+    return len(drop)
 
 
 def _read(path: Path, limit: int | None = None) -> str:
@@ -214,7 +276,8 @@ def probe(cfg: Config) -> int:
 # ------------------------------------------------------------------ 章节笔记
 
 def build_chapter_prompt(cfg: Config, pdf_id: str,
-                         feedback: str = "") -> tuple[str, str]:
+                         feedback: str = "",
+                         current_note: dict[str, Any] | None = None) -> tuple[str, str]:
     task_dir = cfg.task_dir(pdf_id)
     if not (task_dir / "TASK.md").exists():
         raise FileNotFoundError(f"任务包不存在: {task_dir}(先跑 nlnotes tasks)")
@@ -233,8 +296,11 @@ def build_chapter_prompt(cfg: Config, pdf_id: str,
         "", "===== source-text.md(原文全文,页码为 [[p.N]]) =====", _read(task_dir / "source-text.md"),
     ]
     if feedback:
-        parts += ["", "===== 上一轮校验未通过,请逐条修正后重新输出完整 JSON =====", feedback]
-    parts += ["", "现在输出完整的 note.json(仅 JSON):"]
+        parts += ["", "===== 上一轮校验未通过,请在当前 JSON 上只改出错字段 =====", feedback]
+        if current_note:
+            parts += ["", "===== 当前 note.json(必须以此为底稿,不要重写无关字段) =====",
+                      json.dumps(current_note, ensure_ascii=False, indent=2)]
+    parts += [HARD_RULES, "", "现在输出完整的 note.json(仅 JSON):"]
     return system, "\n".join(parts)
 
 
@@ -249,13 +315,8 @@ def format_feedback(report: dict[str, Any], max_items: int = 30) -> str:
         lines.append(f"...(还有 {extra} 条同类错误,请一并修正)")
     lines += ["",
               "只修正上面列出的字段,其他已经写对的内容必须原样保留。",
-              "不要为了修 1 条错而重写整份 JSON(那样常会从 1 条错变成 9 条)。",
-              "不要删减内容来规避错误(会触发覆盖度不足);",
-              "不要改动门禁配置;重新输出**完整**的 note.json。",
-              "引用必须同页连续,不要跨页或拼接不相邻的命令行;",
-              "不要自行发明缩写或换算掩码;",
-              "points[].kind 不要填 process;questions[].type 不要填 command(命令题用 config);",
-              "why_hard_zh/how_to_break_zh 至少 20 字,answer_zh 至少 25 字。"]
+              "下一轮会附上当前 note.json:以它为底稿修改,禁止从零重写整份笔记。",
+              "不要删减内容来规避错误(会触发覆盖度不足);不要改动门禁配置。"]
     return "\n".join(lines)
 
 
@@ -307,10 +368,11 @@ def write_chapter(cfg: Config, item: dict[str, Any], dry_run: bool = False,
         return stat
 
     feedback = ""
+    current_note: dict[str, Any] | None = None
     for rnd in range(1, int(cfg["writer_max_rounds"]) + 1):
         stat["rounds"] = rnd
         if feedback:
-            system, user = build_chapter_prompt(cfg, pdf_id, feedback)
+            system, user = build_chapter_prompt(cfg, pdf_id, feedback, current_note)
         log(f"撰写 {item['rel_path']} — 第 {rnd} 轮")
         content, usage = call_llm(cfg, system, user)
         stat["prompt_tokens"] += usage["prompt_tokens"]
@@ -324,13 +386,23 @@ def write_chapter(cfg: Config, item: dict[str, Any], dry_run: bool = False,
 
         note["pdf_id"] = pdf_id                     # 防止模型写错 id
         note.setdefault("source_rel_path", item["rel_path"])
+        fixed = normalize_note(note)
+        if fixed:
+            log(f"  本地纠正 {fixed} 处枚举填错(command→config / process→step),不另花 API")
         write_json(out_path, note)
 
         rep = verify_note(cfg, pdf_id)
+        if not rep.passed:
+            repaired = local_repair(note, rep)
+            if repaired:
+                write_json(out_path, note)
+                log(f"  本地删除 {repaired} 条原文未出现的 terms,不另花 API")
+                rep = verify_note(cfg, pdf_id)
         if rep.passed:
             stat["passed"] = True
             break
         log_round_errors(rep, f"build/reports/{pdf_id}.json")
+        current_note = note
         feedback = format_feedback(rep.to_dict())
 
     stat["cost_usd"] = round(estimate_cost(cfg, stat["prompt_tokens"],
@@ -365,8 +437,8 @@ def build_group_prompt(cfg: Config, group: dict[str, Any], feedback: str = "") -
         text = _read(cfg.extract_dir(c["pdf_id"]) / "text.md", per)
         parts += ["", f"===== 原文 {c['pdf_id']} — {c['title_zh']} =====", text]
     if feedback:
-        parts += ["", "===== 上一轮校验未通过,请逐条修正后重新输出完整 JSON =====", feedback]
-    parts += ["", "现在输出完整的 interview.json(仅 JSON):"]
+        parts += ["", "===== 上一轮校验未通过,请在当前 JSON 上只改出错字段 =====", feedback]
+    parts += [HARD_RULES, "", "现在输出完整的 interview.json(仅 JSON):"]
     return system, "\n".join(parts)
 
 
