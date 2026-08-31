@@ -61,6 +61,8 @@ python -m nlnotes audit                   # PDF 体检,剔除扫描件/加密/�
 python -m nlnotes diag                    # 打包诊断信息到 build/diagnosis.md(求助时用)
 python -m nlnotes prepare --path OSPF --limit 3   # scan+extract+tasks(建议先小批)
 python -m nlnotes next                    # 列出接下来该写哪几章
+python -m nlnotes watch --enable          # Grok 每批停下来后自动续写(Cursor hook)
+python -m nlnotes watch                   # 盯进度,每 5 章把续写提示词拷到剪贴板
 python -m nlnotes write --dry-run         # 估算 AI 撰写成本,不发请求
 python -m nlnotes write --id <pdf_id>     # 调模型自动撰写(写→校验→回灌→重写)
 python -m nlnotes build --id <pdf_id>     # 校验+渲染+组装(日常用这个)

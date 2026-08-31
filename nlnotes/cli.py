@@ -336,6 +336,43 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_watch(args) -> int:
+    """盯进度 / 打开 Grok 自动续写。真正往对话框里发字的是 Cursor stop hook,不是本命令。"""
+    from nlnotes.watch import continue_text, disable, enable, progress, watch_batches
+    cfg = _cfg(args)
+    if args.enable:
+        p = enable(cfg)
+        print("已打开 Grok 自动续写开关:")
+        print(f"  {p}")
+        print()
+        print("Grok 每一批停下来时,Cursor 会自动再发 prompts/61-继续下一批.md。")
+        print("前提:本仓库已被 Cursor 信任,且 .cursor/hooks.json 里的 python 路径能跑。")
+        print("关掉:")
+        print("  python -m nlnotes watch --disable")
+        print()
+        snap = progress(cfg)
+        print(f"当前:通过 {snap['passed']}/{snap['total']}  未写 {snap['pending']}"
+              f"  未过门禁 {snap['failed']}")
+        return 0
+    if args.disable:
+        disable(cfg)
+        print("已关掉自动续写。Grok 停下来后不会再自动发下一批。")
+        return 0
+    if args.json:
+        print(json.dumps(progress(cfg), ensure_ascii=False, indent=2))
+        return 0
+    if args.copy:
+        text = continue_text()
+        from nlnotes.watch import copy_clipboard
+        if copy_clipboard(text):
+            print("续写提示词已在剪贴板,到 Cursor 按 Ctrl+V。")
+            return 0
+        print(text)
+        return 0
+    return watch_batches(cfg, batch=args.batch, interval=args.interval,
+                         clipboard=not args.no_clipboard)
+
+
 def cmd_select(args) -> int:
     from nlnotes import selection
     cfg = _cfg(args)
@@ -814,6 +851,18 @@ def build_parser() -> argparse.ArgumentParser:
     _select(sp)
     sp.add_argument("--detail", action="store_true")
     sp.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser("watch", help="盯 Grok 批量进度;可打开自动续写下一批")
+    _common(sp)
+    sp.add_argument("--enable", action="store_true",
+                    help="打开开关:Grok 停下来后由 Cursor hook 自动再发下一批")
+    sp.add_argument("--disable", action="store_true", help="关掉自动续写")
+    sp.add_argument("--json", action="store_true", help="打印当前进度 JSON 后退出")
+    sp.add_argument("--copy", action="store_true", help="把续写提示词拷到剪贴板后退出")
+    sp.add_argument("--batch", type=int, default=5, help="每再通过多少章提醒一次(默认 5)")
+    sp.add_argument("--interval", type=float, default=15, help="轮询间隔秒")
+    sp.add_argument("--no-clipboard", action="store_true", help="提醒时不写剪贴板,只打印")
+    sp.set_defaults(func=cmd_watch)
 
     sp = sub.add_parser("audit", help="PDF 体检:能否搜索、是否扫描件,并剔除不可用文件")
     _common(sp)

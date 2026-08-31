@@ -330,6 +330,23 @@ def main() -> int:
     check(nterm == 1 and len(sample["terms"]) == 1 and sample["terms"][0]["en"] == "MD5",
           "只删除未出现的术语,不改内容")
 
+    print("\n[6.6/8] Grok 自动续写:默认关闭,开了才能续")
+    hook = ROOT / ".cursor" / "hooks" / "continue-nlnotes.py"
+    hproc = subprocess.run([sys.executable, str(hook)],
+                           input=b'{"status":"completed"}',
+                           capture_output=True, timeout=30)
+    check(hproc.returncode == 0, "stop hook 能跑")
+    check(hproc.stdout.strip() == b"{}", "没开开关时 hook 不续写")
+    proc = run(["watch", "--json", *COMMON])
+    check("pending" in proc.stdout and "auto_continue" in proc.stdout,
+          "watch --json 能报进度")
+    proc = run(["watch", "--enable", *COMMON])
+    check("已打开" in proc.stdout, "watch --enable 打开开关")
+    check((BUILD / "grok-auto-continue").exists(), "开关文件写在 build/")
+    proc = run(["watch", "--disable", *COMMON])
+    check("已关掉" in proc.stdout, "watch --disable 关掉开关")
+    check(not (BUILD / "grok-auto-continue").exists(), "关掉后开关文件删除")
+
     run(["diag", *COMMON])
     diag_md = BUILD / "diagnosis.md"
     check(diag_md.exists(), "生成诊断报告 build/diagnosis.md")

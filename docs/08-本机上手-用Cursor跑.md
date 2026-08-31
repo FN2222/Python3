@@ -443,6 +443,28 @@ pdf_id: <PDF_ID>
 它让 AI 一条消息连续做完 5 章:自己取任务、读输入、看图、写 note.json、
 跑校验、按报告修订,做完汇报每章用了几轮。做完一批把同一段再发一次就接着下一批。
 
+**不想每批手动粘贴?**三种办法,从省事到全自动:
+
+1. **现在就能用(推荐先试)**:Grok 还在写的时候,把 `prompts/60` 或 `prompts/61-继续下一批.md`
+   再粘进输入框,按 Enter **排队**。当前这批做完,排队的消息会自动发出去。
+   可以提前排 2~3 条。这是 Cursor 自带的 Queued messages,不用装任何东西。
+2. **盯进度 + 拷到剪贴板**:另开一个本机 PowerShell:
+   ```powershell
+   .\.venv\Scripts\python.exe -m nlnotes watch
+   ```
+   每再通过 5 章会响一声,并把续写提示词放到剪贴板,你切回 Cursor 按 `Ctrl+V` 发送。
+3. **Grok 停下来自动再发**(Cursor stop hook):
+   ```powershell
+   .\.venv\Scripts\python.exe -m nlnotes watch --enable
+   ```
+   打开开关后,Grok 每一批停下来,Cursor 会自动提交 `prompts/61-继续下一批.md`。
+   没开开关不会动,所以普通聊天不会被带着跑。关掉:`watch --disable`。
+   前提:用 Cursor 打开本仓库时点过 **信任此工作区**;若没反应,把
+   `.cursor/hooks.json` 里的 python 改成你的
+   `D:\Python3\.venv\Scripts\python.exe` 后重启 Cursor。
+
+不要用 Cursor 的 `/loop` 按时间重复 —— 它不管写没写完,可能打断正在写的那一章。
+
 下面是简化版模板:
 
 ```
