@@ -56,6 +56,16 @@ DEFAULTS: dict[str, Any] = {
     # 需要额外安装: pip install pytesseract + 系统安装 tesseract-ocr
     "figure_ocr": False,
     "ocr_lang": "eng",
+    # Windows 上 UB-Mannheim 的安装包默认不把 tesseract 加进 PATH,
+    # 所以装了也可能找不到。工具会自动探测常见安装位置;
+    # 探测不到时在这里写完整路径,例如 C:/Program Files/Tesseract-OCR/tesseract.exe
+    "tesseract_cmd": "",
+    # OCR 抽出的图内文字本身就是确定性证据,纳入词表后,图上带大量数值的章节
+    # (子网划分、VLAN)不必让 AI 逐个手工登记 labels_seen。
+    "ocr_text_as_evidence": True,
+    # OCR 对小字号很不可靠(逗号认成句点、R1 这类小标签常整个识别不出),
+    # 所以"标签在 OCR 里找不到"默认只是警告。设为 true 才升级为硬错误。
+    "ocr_label_mismatch_as_error": False,
 
     # ---------- 网页转 PDF 的噪声清理 ----------
     # NetworkLessons 的 PDF 是从网页导出的,每页会夹带站点导航文字

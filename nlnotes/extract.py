@@ -232,24 +232,88 @@ def _caption_and_context(lines: list[dict[str, Any]], bbox: list[float],
     return caption, heading_above, norm_space(f"{before} {after}")
 
 
-_OCR_STATE: dict[str, Any] = {"checked": False, "available": False}
+_OCR_STATE: dict[str, Any] = {"checked": False, "available": False, "cmd": "",
+                              "reason": ""}
+
+# Windows 上 UB-Mannheim 的安装包**默认不把 tesseract 加进 PATH**,
+# 所以只靠 shutil.which 会找不到。这里补上常见安装位置。
+TESSERACT_CANDIDATES = (
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe",
+    r"%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe",
+    r"%PROGRAMFILES%\Tesseract-OCR\tesseract.exe",
+    "/usr/bin/tesseract",
+    "/usr/local/bin/tesseract",
+    "/opt/homebrew/bin/tesseract",
+)
+
+
+def find_tesseract(cfg: Config) -> str:
+    """定位 tesseract 可执行文件:配置指定 > PATH > 常见安装路径。"""
+    import os as _os
+    import shutil as _sh
+
+    explicit = str(cfg.get("tesseract_cmd") or "").strip()
+    if explicit:
+        expanded = _os.path.expandvars(_os.path.expanduser(explicit))
+        if Path(expanded).exists():
+            return expanded
+        found = _sh.which(explicit)
+        if found:
+            return found
+        log(f"配置的 tesseract_cmd 不存在: {explicit},改为自动探测", "warn")
+
+    found = _sh.which("tesseract")
+    if found:
+        return found
+    for cand in TESSERACT_CANDIDATES:
+        expanded = _os.path.expandvars(cand)
+        if "%" in expanded:            # 变量没展开说明该平台没有,跳过
+            continue
+        if Path(expanded).exists():
+            return expanded
+    return ""
+
+
+def ocr_status(cfg: Config) -> dict[str, Any]:
+    """返回 OCR 是否真的可用,以及不可用的原因(供 doctor / diag 使用)。"""
+    if not cfg.get("figure_ocr"):
+        return {"enabled": False, "available": False, "cmd": "",
+                "reason": "config 的 figure_ocr 为 false(未启用)"}
+    try:
+        import pytesseract  # noqa: F401
+    except ImportError:
+        return {"enabled": True, "available": False, "cmd": "",
+                "reason": "缺少 pytesseract:pip install pytesseract"}
+    cmd = find_tesseract(cfg)
+    if not cmd:
+        return {"enabled": True, "available": False, "cmd": "",
+                "reason": "找不到 tesseract 可执行文件。装了但没加 PATH 时,"
+                          "在 config 的 tesseract_cmd 里写完整路径,例如 "
+                          r"C:/Program Files/Tesseract-OCR/tesseract.exe"}
+    return {"enabled": True, "available": True, "cmd": cmd, "reason": ""}
 
 
 def _ocr_image(cfg: Config, path: Path) -> str:
-    """对拓扑图做 OCR,把图内文字(设备名/接口/网段)纳入证据库。缺少依赖时静默跳过。"""
+    """对拓扑图做 OCR,把图内文字(设备名/接口/网段)纳入证据库。缺少依赖时跳过。"""
     if not cfg.get("figure_ocr"):
         return ""
     if not _OCR_STATE["checked"]:
         _OCR_STATE["checked"] = True
-        try:
-            import pytesseract  # noqa: F401
-            from PIL import Image  # noqa: F401
-            import shutil as _sh
-            _OCR_STATE["available"] = bool(_sh.which("tesseract"))
-            if not _OCR_STATE["available"]:
-                log("已开启 figure_ocr,但系统未安装 tesseract,OCR 跳过", "warn")
-        except ImportError:
-            log("已开启 figure_ocr,但未安装 pytesseract,OCR 跳过", "warn")
+        st = ocr_status(cfg)
+        _OCR_STATE["available"] = st["available"]
+        _OCR_STATE["cmd"] = st["cmd"]
+        _OCR_STATE["reason"] = st["reason"]
+        if st["available"]:
+            try:
+                import pytesseract
+                pytesseract.pytesseract.tesseract_cmd = st["cmd"]
+            except Exception:
+                pass
+            log(f"图内文字 OCR 已启用: {st['cmd']}")
+        else:
+            log(f"已开启 figure_ocr,但 OCR 不可用 —— {st['reason']}", "warn")
     if not _OCR_STATE["available"]:
         return ""
     try:

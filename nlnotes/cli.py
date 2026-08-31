@@ -67,6 +67,18 @@ def cmd_doctor(args) -> int:
         print(f"  {'✅' if found else '➖'} {exe:<12} {why}"
               + ("" if found else f"(缺失 → {fallback})"))
 
+    from nlnotes.extract import ocr_status
+    st = ocr_status(cfg)
+    if not st["enabled"]:
+        print(f"\n图内文字 OCR : ➖ 未启用(config 的 figure_ocr = false)")
+        print("  -> 拓扑图里的设备名/网段只在图片里。不开 OCR 就要靠 AI 看图登记 labels_seen;")
+        print("     子网划分、VLAN 这类图上带大量数值的章节,建议开启")
+    elif st["available"]:
+        print(f"\n图内文字 OCR : ✅ 可用 — {st['cmd']}")
+    else:
+        print(f"\n图内文字 OCR : ❌ 已开启但不可用 — {st['reason']}")
+        ok = False
+
     from nlnotes.visuals import find_font
     font = find_font(cfg)
     print(f"\n中文字体      : {font or '❌ 未找到(自制图中文会变方块)'}")

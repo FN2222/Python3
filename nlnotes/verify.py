@@ -253,7 +253,7 @@ def _check_quotes(note: dict[str, Any], index: SourceIndex, cfg: Config, rep: Re
 
 
 def _figure_label_vocab(note: dict[str, Any], index: SourceIndex,
-                        rep: Report) -> set[str]:
+                        cfg: Config, rep: Report) -> set[str]:
     """拓扑图里的设备名/网段只存在于图片像素中,不在 PDF 文本层。
 
     AI 在 figures[].labels_seen 里登记它从图上读到的标签,这些标签即视为合法证据。
@@ -262,29 +262,69 @@ def _figure_label_vocab(note: dict[str, Any], index: SourceIndex,
     from nlnotes.evidence import SOURCE_TOKEN
     from nlnotes.util import norm_for_match
 
+    def ocr_norm(text: str) -> str:
+        """OCR 比对前的归一化。
+
+        小字号的图内文字 OCR 很不可靠:逗号常被认成句点、6 认成 8、l 认成 1,
+        更小的标签(如 R1)甚至整个识别不出来。所以比对前先抹平标点差异,
+        并且**默认只当警告**,否则正确的标签会被误判成错误、把 AI 卡死。
+        """
+        t = norm_for_match(text)
+        for a, b in ((",", "."), ("，", "."), ("。", "."), (" ", "")):
+            t = t.replace(a, b)
+        return t
+
     vocab: set[str] = set()
     declared: list[str] = []
+    mismatched: list[str] = []
+    as_error = bool(cfg.get("ocr_label_mismatch_as_error"))
     for si, sec in enumerate(note.get("sections", [])):
         for fi, fig in enumerate(sec.get("figures", []) or []):
             fid = fig.get("figure_id", "")
-            ocr = norm_for_match(index.figure_ocr_text(fid))
+            raw_ocr = index.figure_ocr_text(fid)
+            ocr = ocr_norm(raw_ocr)
+            # OCR 抽出的图内文字本身就是确定性证据,直接纳入词表 ——
+            # 这样图上带大量数值的章节(子网划分、VLAN)不必逐个手工登记
+            if raw_ocr and cfg.get("ocr_text_as_evidence", True):
+                vocab |= set(SOURCE_TOKEN.findall(norm_for_match(raw_ocr)))
             for li, label in enumerate(fig.get("labels_seen", []) or []):
                 norm = norm_for_match(str(label))
                 if not norm:
                     continue
                 declared.append(str(label))
                 vocab |= set(SOURCE_TOKEN.findall(norm))
-                if ocr:
-                    from rapidfuzz import fuzz
-                    if norm not in ocr and int(fuzz.partial_ratio(norm, ocr)) < 85:
-                        rep.err("G010", f"sections[{si}].figures[{fi}].labels_seen[{li}]",
-                                f"标签 “{label}” 在该图 OCR 结果中找不到",
-                                "只登记图上确实存在的文字;OCR 有误时可关闭 figure_ocr 并人工核对")
+                if not ocr:
+                    continue
+                from rapidfuzz import fuzz
+                key = ocr_norm(str(label))
+                if key in ocr or int(fuzz.partial_ratio(key, ocr)) >= 80:
+                    continue
+                where = f"sections[{si}].figures[{fi}].labels_seen[{li}]"
+                msg = f"标签 “{label}” 在该图的 OCR 结果里找不到"
+                fix = ("OCR 对小字号很不可靠(逗号认成句点、R1 这类小标签常整个识别不出),"
+                       "所以这条默认只是提醒。确认图上确实没有这段文字再删除它;"
+                       "想让它变成硬错误,把 config 的 ocr_label_mismatch_as_error 设为 true")
+                if as_error:
+                    rep.err("G010", where, msg, fix)
+                else:
+                    mismatched.append(str(label))
+    if mismatched and not as_error:
+        rep.warn("G010", "figures.labels_seen",
+                 f"有 {len(mismatched)} 个标签在 OCR 结果里没对上(OCR 对小字号不可靠,"
+                 f"仅提醒): " + "、".join(mismatched[:10])
+                 + (" ..." if len(mismatched) > 10 else ""),
+                 "对照图片人工确认即可;确实不存在的标签请删掉")
     if declared and not index.has_ocr:
         rep.warn("G011", "figures.labels_seen",
-                 f"共登记了 {len(declared)} 个图内标签(未启用 OCR,无法自动核对): "
-                 + "、".join(declared[:12]) + (" ..." if len(declared) > 12 else ""),
-                 "如需自动核对,开启 config 的 figure_ocr 并安装 tesseract;否则请人工抽查图片")
+                 f"共登记了 {len(declared)} 个图内标签,但该章抽取产物里没有 OCR 文本,"
+                 f"无法自动核对: " + "、".join(declared[:12])
+                 + (" ..." if len(declared) > 12 else ""),
+                 "已装 OCR 却仍报这条,按顺序查三件事:"
+                 "① config 的 figure_ocr 是否为 true;"
+                 "② nlnotes doctor 里「图内文字 OCR」是否显示 ✅ 可用;"
+                 "③ 改完是否重跑过 nlnotes extract --force"
+                 "(OCR 文本存在抽取产物里,不重跑不会生效)。"
+                 "不装 OCR 也可以,人工抽查图片即可")
     return vocab
 
 
@@ -293,7 +333,7 @@ def _check_tokens(note: dict[str, Any], index: SourceIndex, cfg: Config, rep: Re
         return
     whitelist = set(cfg["token_whitelist"])
     whitelist |= {t.en.lower() for t in load_glossary()}          # 术语表英文本身不算编造
-    whitelist |= _figure_label_vocab(note, index, rep)            # 拓扑图上读到的标签
+    whitelist |= _figure_label_vocab(note, index, cfg, rep)       # 拓扑图上读到的标签
     total_bad = 0
     for where, text in iter_zh_fields(note):
         if not text:

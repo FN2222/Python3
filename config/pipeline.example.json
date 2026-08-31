@@ -26,6 +26,9 @@
   "context_chars": 700,
   "figure_ocr": false,
   "ocr_lang": "eng",
+  "tesseract_cmd": "",
+  "ocr_text_as_evidence": true,
+  "ocr_label_mismatch_as_error": false,
   "clean_text_noise": true,
   "text_noise_lines": [
     "search …",

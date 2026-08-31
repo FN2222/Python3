@@ -54,8 +54,16 @@ def _env_section(cfg: Config) -> list[str]:
         ocr_pkg = True
     except ImportError:
         ocr_pkg = False
-    lines.append(f"- {'✅' if ocr_pkg else '➖'} pytesseract — 图内文字 OCR"
-                 f"(tesseract 可执行文件:{'找到' if shutil.which('tesseract') else '未找到'})")
+    from nlnotes.extract import ocr_status
+    st = ocr_status(cfg)
+    if not st["enabled"]:
+        lines.append("- ➖ 图内文字 OCR — 未启用(config 的 figure_ocr = false)")
+    elif st["available"]:
+        lines.append(f"- ✅ 图内文字 OCR — 可用:`{st['cmd']}`")
+    else:
+        lines.append(f"- ❌ 图内文字 OCR — **已开启但不可用**:{st['reason']}")
+    lines.append(f"- {'✅' if ocr_pkg else '➖'} pytesseract 包"
+                 f"(PATH 里的 tesseract:{'找到' if shutil.which('tesseract') else '未找到'})")
     lines.append("")
 
     font = find_font(cfg)

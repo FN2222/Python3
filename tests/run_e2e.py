@@ -406,6 +406,35 @@ def main() -> int:
     check("知识点密度" in proc.stdout and "引用校验通过率" in proc.stdout,
           "stats 汇总质量指标(可用于对比不同模型)")
 
+    print("\n[7.3/8] 图内文字 OCR(装了 tesseract 才测)")
+    import shutil as _sh
+    if not _sh.which("tesseract"):
+        print("  ➖ 未安装 tesseract,跳过 OCR 相关检查")
+    else:
+        ocr_cfg = TMP / "ocr-config.json"
+        base = json.loads((ROOT / "config" / "pipeline.example.json")
+                          .read_text(encoding="utf-8"))
+        base.update({"figure_ocr": True, "source_root": str(SRC),
+                     "build_dir": str(BUILD), "notes_dir": str(NOTES)})
+        ocr_cfg.write_text(json.dumps(base, ensure_ascii=False, indent=2), encoding="utf-8")
+        oc = ["--config", str(ocr_cfg)]
+        proc = run(["doctor", *oc])
+        check("图内文字 OCR : ✅ 可用" in proc.stdout,
+              "doctor 能自动定位 tesseract 并报告 OCR 可用")
+        run(["extract", "--id", pdf_id, "--force", *oc])
+        ofigs = load(BUILD / "extract" / pdf_id / "figures.json")["figures"]
+        check(any((f.get("ocr_text") or "").strip() for f in ofigs),
+              "OCR 抽出了图内文字")
+        # OCR 对小字号不可靠,标签对不上只能是警告,不能把正例卡死
+        proc = run(["verify", "--id", pdf_id, "--show", *oc])
+        orep = load(BUILD / "reports" / f"{pdf_id}.json")
+        check(orep["passed"], "开启 OCR 后正例仍然通过(标签对不上只降级为警告)")
+        codes = {e["code"] for e in orep["errors"]}
+        check("G010" not in codes, "OCR 标签不匹配不会变成硬错误")
+        # 恢复不带 OCR 的抽取产物,避免影响后续步骤
+        run(["extract", "--id", pdf_id, "--force", *COMMON])
+        run(["verify", "--id", pdf_id, *COMMON])
+
     print("\n[7.4/8] 选课清单:只做指定方向")
     sel = ROOT / "config" / "selection.txt"
     sel_backup = sel.read_text(encoding="utf-8") if sel.exists() else None
