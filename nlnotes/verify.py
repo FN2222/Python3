@@ -66,6 +66,8 @@ def iter_zh_fields(note: dict[str, Any]) -> Iterable[tuple[str, str]]:
             yield f"{base}.intro_zh", sec["intro_zh"]
         for pi, pt in enumerate(sec.get("points", [])):
             yield f"{base}.points[{pi}].text_zh", pt.get("text_zh", "")
+            if pt.get("detail_zh"):
+                yield f"{base}.points[{pi}].detail_zh", pt["detail_zh"]
         for fi, fig in enumerate(sec.get("figures", []) or []):
             yield f"{base}.figures[{fi}].caption_zh", fig.get("caption_zh", "")
             yield f"{base}.figures[{fi}].explain_zh", fig.get("explain_zh", "")
@@ -90,6 +92,15 @@ def iter_zh_fields(note: dict[str, Any]) -> Iterable[tuple[str, str]]:
 
     fey = note.get("feynman", {}) or {}
     yield "feynman.explain_back_zh", fey.get("explain_back_zh", "")
+    for mi, m in enumerate(fey.get("must_master", []) or []):
+        yield f"feynman.must_master[{mi}].point_zh", m.get("point_zh", "")
+        yield f"feynman.must_master[{mi}].why_zh", m.get("why_zh", "")
+        if m.get("memory_hook_zh"):
+            yield f"feynman.must_master[{mi}].memory_hook_zh", m["memory_hook_zh"]
+    for di, d in enumerate(fey.get("difficulties", []) or []):
+        yield f"feynman.difficulties[{di}].name_zh", d.get("name_zh", "")
+        yield f"feynman.difficulties[{di}].why_hard_zh", d.get("why_hard_zh", "")
+        yield f"feynman.difficulties[{di}].how_to_break_zh", d.get("how_to_break_zh", "")
     for qi, q in enumerate(fey.get("questions", []) or []):
         yield f"feynman.questions[{qi}]({q.get('id', '?')}).q_zh", q.get("q_zh", "")
         yield f"feynman.questions[{qi}]({q.get('id', '?')}).answer_zh", q.get("answer_zh", "")
@@ -103,6 +114,8 @@ def body_pages(note: dict[str, Any]) -> set[int]:
     """正文(小节)实际讲到的页 —— 覆盖度只看这个,不把测验算进去。"""
     pages: set[int] = set()
     for sec in note.get("sections", []):
+        for pt in sec.get("points", []):
+            pages.update(int(p) for p in pt.get("also_pages", []) or [])
         pages.update(int(p) for p in sec.get("pages", []) or [])
         for pt in sec.get("points", []):
             if pt.get("page"):
@@ -119,9 +132,12 @@ def body_pages(note: dict[str, Any]) -> set[int]:
 
 
 def quiz_pages(note: dict[str, Any]) -> set[int]:
+    """费曼部分引用的页 —— 不计入覆盖度,但受"不超纲"约束(X011)。"""
     pages: set[int] = set()
-    for q in (note.get("feynman", {}) or {}).get("questions", []) or []:
-        pages.update(int(p) for p in q.get("source_pages", []) or [])
+    fey = note.get("feynman", {}) or {}
+    for key in ("questions", "must_master", "difficulties"):
+        for item in fey.get(key, []) or []:
+            pages.update(int(p) for p in item.get("source_pages", []) or [])
     return pages
 
 
@@ -217,6 +233,14 @@ def _check_quotes(note: dict[str, Any], index: SourceIndex, cfg: Config, rep: Re
             q.get("evidence_quote", ""),
             [int(p) for p in q.get("source_pages", []) or []], th, "Q002")
 
+    fey = note.get("feynman", {}) or {}
+    for mi, m in enumerate(fey.get("must_master", []) or []):
+        one(f"feynman.must_master[{mi}].evidence_quote", m.get("evidence_quote", ""),
+            [int(p) for p in m.get("source_pages", []) or []], th, "Q003")
+    for di, d in enumerate(fey.get("difficulties", []) or []):
+        one(f"feynman.difficulties[{di}].evidence_quote", d.get("evidence_quote", ""),
+            [int(p) for p in d.get("source_pages", []) or []], th, "Q004")
+
     vth = int(cfg["visual_quote_threshold"])
     for si, sec in enumerate(note.get("sections", [])):
         for vi, v in enumerate(sec.get("visuals", []) or []):
@@ -308,11 +332,13 @@ def _check_figures(note: dict[str, Any], index: SourceIndex, cfg: Config, rep: R
                         f"figure_id 不存在: {fid}", "对照 figures.md 选择真实存在的图")
             else:
                 used.add(fid)
-    for q in (note.get("feynman", {}) or {}).get("questions", []) or []:
-        for fid in q.get("figure_refs", []) or []:
-            if fid not in index.figure_ids:
-                rep.err("G002", f"questions({q.get('id')}).figure_refs",
-                        f"figure_id 不存在: {fid}", "对照 figures.md")
+    fey = note.get("feynman", {}) or {}
+    for key in ("questions", "difficulties"):
+        for item in fey.get(key, []) or []:
+            for fid in item.get("figure_refs", []) or []:
+                if fid not in index.figure_ids:
+                    rep.err("G002", f"feynman.{key}({item.get('id') or item.get('name_zh')}).figure_refs",
+                            f"figure_id 不存在: {fid}", "对照 figures.md")
 
     available = len(index.figure_ids)
     rep.stats["figures_available"] = available
@@ -440,6 +466,26 @@ def _check_coverage_and_quiz(note: dict[str, Any], index: SourceIndex,
             rep.err("X007", f"{where}.q_en", "英文问题里混入了中文", "q_en 必须是纯英文")
         if has_cjk(q.get("answer_en", "")):
             rep.err("X008", f"{where}.answer_en", "英文答案里混入了中文", "answer_en 必须是纯英文")
+
+    # 详尽度:知识点密度。太稀说明在做空洞概括,而不是把原文讲透。
+    points = sum(len(sec.get("points", [])) for sec in note.get("sections", []))
+    density = points / max(1, len(content))
+    rep.stats["points_total"] = points
+    rep.stats["points_per_content_page"] = round(density, 2)
+    need_density = float(cfg["min_points_per_content_page"])
+    if density < need_density:
+        rep.err("X012", "sections.points",
+                f"知识点密度过低:{points} 条 / {len(content)} 个正文页 = {density:.2f},"
+                f"低于要求 {need_density};说明笔记在做空洞概括",
+                "回到原文逐段补知识点,并用 points[].detail_zh 把机制/前提/例外讲透")
+
+    detailed = sum(1 for sec in note.get("sections", [])
+                   for pt in sec.get("points", []) if (pt.get("detail_zh") or "").strip())
+    rep.stats["points_with_detail"] = detailed
+    if points and detailed / points < 0.25:
+        rep.warn("X013", "sections.points.detail_zh",
+                 f"只有 {detailed}/{points} 条知识点填了 detail_zh(深入说明)",
+                 "对机制性、易混淆的知识点补 detail_zh,笔记才够扎实")
 
     if len(note.get("sections", [])) < int(cfg["min_sections"]):
         rep.warn("X009", "sections",

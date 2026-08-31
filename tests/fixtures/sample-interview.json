@@ -1,0 +1,670 @@
+{
+  "group_key": "IGP/OSPF",
+  "group_title_zh": "OSPF",
+  "group_title_en": "OSPF",
+  "overview_zh": "本协议目前覆盖的内容集中在邻居关系的建立与验证上:hello 报文如何发现邻居、四项参数为什么必须同时匹配、邻居状态如何从 Down 推进到 Full、广播网络上 DR 与 BDR 如何选举,以及如何用命令验证结果。面试中这一块问得最细,因为它同时考概念、顺序和排查思路。",
+  "covered_chapters": [
+    {
+      "pdf_id": "__WILL_BE_PATCHED__",
+      "title_zh": "OSPF 邻居邻接关系",
+      "key_points_zh": [
+        "hello 报文与邻居发现,四项必须匹配的参数",
+        "邻居状态 Down、Init、2-Way、Full 及各自触发条件",
+        "广播网络上 DR 与 BDR 的选举判定顺序",
+        "用 show ip ospf neighbor 验证邻居状态与接口"
+      ]
+    }
+  ],
+  "knowledge_map": {
+    "mermaid": "flowchart TD\n    A[hello packets 发现邻居] --> B{四项参数是否全部匹配?}\n    B -- 否 --> X[不成为邻居]\n    B -- 是 --> C[Down]\n    C -->|收到 hello| D[Init]\n    D -->|看到自己的 router ID| E[2-Way]\n    E -->|database exchange 完成| F[Full]\n    E --> G{是否广播网络?}\n    G -- 是 --> H[选举 DR 与 BDR]\n    H --> I[其余路由器只与 DR/BDR 完全邻接]\n    F --> V[show ip ospf neighbor 验证]",
+    "reading_order_zh": [
+      "先看 hello 报文与四项匹配参数 —— 这是所有后续内容的前提,邻居都建不起来就谈不上状态推进。",
+      "再看邻居状态机 Down 到 Full —— 重点记每一步的触发条件,而不是状态名字。",
+      "然后看 DR 与 BDR 选举 —— 它只在广播网络上发生,判定顺序和特例要一起记。",
+      "最后看验证命令 —— 把 show ip ospf neighbor 的 State 列和前面的状态机对应起来,形成闭环。"
+    ]
+  },
+  "must_master": [
+    {
+      "point_zh": "hello interval、dead interval、area ID、子网掩码四项必须同时匹配,两台路由器才会成为邻居。",
+      "why_zh": "这是邻居关系的准入条件,也是排查邻居建不起来时的第一张检查清单。只记住一项就会漏掉另外三个原因。",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+         "quote": "Two routers become neighbors only when the hello interval, the dead interval, the area ID and the subnet mask all match."}
+      ]
+    },
+    {
+      "point_zh": "hello 报文在广播网段上发往组播地址 224.0.0.5,每 10 秒一次;dead interval 默认 40 秒,是其四倍。",
+      "why_zh": "这两个数值几乎是必问的送分题,而且 40 与 10 的四倍关系还会被继续追问为什么这样设计。",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+         "quote": "The hello packet is sent to multicast address 224.0.0.5 every 10 seconds on a broadcast network segment."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+         "quote": "The dead interval is 40 seconds by default, which is four times the hello interval."}
+      ]
+    },
+    {
+      "point_zh": "进入 2-Way 的条件是在收到的 hello 报文里看到自己的 router ID,而不是又收到一个 hello。",
+      "why_zh": "这是区分背过与真懂的分水岭。答成又收到一个 hello,面试官立刻知道候选人没理解双向确认的含义。",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+         "quote": "Once the router sees its own router ID in the received hello packet, the neighbor moves to the 2-Way state."}
+      ]
+    },
+    {
+      "point_zh": "DR 选举先比 OSPF priority 且最高者胜,priority 相同再比 router ID 且最大者胜,priority 为 0 者永不当选。",
+      "why_zh": "顺序、方向、特例三点缺一不可,是最容易被连环追问的地方。",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "The router with the highest OSPF priority becomes the designated router."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "A priority of 0 means the router will never become the designated router."}
+      ]
+    },
+    {
+      "point_zh": "选出 DR 和 BDR 后,其余路由器只与 DR 和 BDR 建立完全邻接,彼此之间不建立。",
+      "why_zh": "这一条直接回答了为什么要选举,是把知识点串成体系的关键;答不出来说明只背了规则没理解目的。",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "All other routers form a full adjacency only with the DR and the BDR."}
+      ]
+    }
+  ],
+  "fundamentals": [
+    {
+      "id": "f1",
+      "difficulty": 2,
+      "tags_zh": ["邻居建立", "高频"],
+      "q_zh": "请完整讲一遍 OSPF 邻居关系是怎么从零建立到完全邻接的。",
+      "q_en": "Walk me through how an OSPF neighbor relationship is established from scratch to full adjacency.",
+      "answer_template_zh": {
+        "opening": "一句话说:先靠 hello 报文互相发现,再核对四项参数确认是邻居,然后状态从 Down 依次推进到 Init、2-Way,数据库交换完成后到 Full。",
+        "body": [
+          {"label": "发现阶段",
+           "content": "路由器在链路上互发 hello 报文来发现邻居。在广播网段上,hello 报文发往组播地址 224.0.0.5,每 10 秒一次。"},
+          {"label": "准入条件",
+           "content": "收到 hello 还不够,必须 hello interval、dead interval、area ID 和子网掩码四项全部匹配,才会成为邻居;其中 dead interval 默认 40 秒,是 hello interval 的四倍。"},
+          {"label": "状态推进",
+           "content": "最初是 Down,表示还没收到过 hello;收到 hello 后进入 Init;在收到的 hello 里看到自己的 router ID 后进入 2-Way;数据库交换完成后到达 Full。"},
+          {"label": "验证方法",
+           "content": "用 show ip ospf neighbor 查看,输出里的 State 列就是上面的状态,Interface 列说明邻居在哪条链路上。"}
+        ],
+        "closing": "所以判断邻接是否真的建好,标准是 State 到 Full,而不是能看到邻居条目。"
+      },
+      "answer_template_en": {
+        "opening": "In short: routers discover each other with hello packets, check four parameters to accept each other as neighbors, then move from Down through Init and 2-Way, and reach Full after the database exchange.",
+        "body": [
+          {"label": "Discovery",
+           "content": "OSPF routers use hello packets to discover neighbors on a link. On a broadcast network segment the hello packet is sent to multicast address 224.0.0.5 every 10 seconds."},
+          {"label": "Acceptance conditions",
+           "content": "Two routers become neighbors only when the hello interval, the dead interval, the area ID and the subnet mask all match. The dead interval is 40 seconds by default, four times the hello interval."},
+          {"label": "State progression",
+           "content": "The first state is Down. Receiving a hello packet moves the neighbor to Init. Seeing its own router ID in the received hello packet moves it to 2-Way. After the database exchange finishes it reaches Full."},
+          {"label": "Verification",
+           "content": "Use the show ip ospf neighbor command; the State column shows the state and the Interface column shows where the neighbor was found."}
+        ],
+        "closing": "So the real criterion for a working adjacency is reaching the Full state, not merely seeing a neighbor entry."
+      },
+      "scoring_points_zh": [
+        "说出 hello 报文与组播地址 224.0.0.5、10 秒周期",
+        "四项匹配参数完整说出且强调必须全部匹配",
+        "四个状态顺序正确,并说出各自触发条件",
+        "2-Way 的条件说成看到自己的 router ID",
+        "提到用 show ip ospf neighbor 验证"
+      ],
+      "scoring_points_en": [
+        "Mentions hello packets, multicast address 224.0.0.5 and the 10 second interval",
+        "Lists all four matching parameters and stresses that all must match",
+        "Gives the four states in the right order with their triggers",
+        "States the 2-Way trigger as seeing its own router ID",
+        "Mentions verifying with show ip ospf neighbor"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+         "quote": "OSPF routers use hello packets to discover neighbors on a link."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+         "quote": "An OSPF neighbor moves through several states before the adjacency is complete."}
+      ],
+      "extension_zh": "实际排障时,这套流程通常配合抓包一起看:如果一端在发、另一端完全收不到,问题往往在二层而不是 OSPF 本身。这一点课程原文没有涉及,属于工程经验。",
+      "extension_en": "In real troubleshooting this flow is usually combined with packet capture: if one side sends but the other receives nothing, the problem is often at layer 2 rather than in OSPF itself. This is field experience, not part of the course material."
+    },
+    {
+      "id": "f2",
+      "difficulty": 1,
+      "tags_zh": ["参数", "送分题"],
+      "q_zh": "两台路由器要成为 OSPF 邻居,必须匹配哪几项参数?漏掉一项会怎样?",
+      "q_en": "Which parameters must match for two routers to become OSPF neighbors, and what happens if one does not match?",
+      "answer_template_zh": {
+        "opening": "四项:hello interval、dead interval、area ID 和子网掩码,必须全部匹配。",
+        "body": [
+          {"label": "分类记忆",
+           "content": "这四项可以分两类记:时间参数是 hello interval 和 dead interval,身份与网段参数是 area ID 和子网掩码。"},
+          {"label": "逻辑关系",
+           "content": "原文的表述是 only when ... all match,是四项同时成立的关系,任意一项不一致就不会成为邻居。"}
+        ],
+        "closing": "所以排查邻居建不起来时,这四项要逐项核对,不能只看其中一项。"
+      },
+      "answer_template_en": {
+        "opening": "Four parameters: the hello interval, the dead interval, the area ID and the subnet mask, and all of them must match.",
+        "body": [
+          {"label": "How to remember",
+           "content": "Two of them are timers, the hello interval and the dead interval; the other two identify the area and the segment, the area ID and the subnet mask."},
+          {"label": "Logical relation",
+           "content": "The wording is only when all match, so it is a conjunction: if any single one differs, the routers do not become neighbors."}
+        ],
+        "closing": "When an adjacency does not come up, check all four rather than just one of them."
+      },
+      "scoring_points_zh": [
+        "四项一个不漏",
+        "明确说明必须全部匹配",
+        "能指出任意一项不一致就不成为邻居"
+      ],
+      "scoring_points_en": [
+        "Lists all four parameters",
+        "States explicitly that all must match",
+        "Notes that a single mismatch prevents the adjacency"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+         "quote": "Two routers become neighbors only when the hello interval, the dead interval, the area ID and the subnet mask all match."}
+      ]
+    },
+    {
+      "id": "f3",
+      "difficulty": 2,
+      "tags_zh": ["状态机"],
+      "q_zh": "Init 和 2-Way 分别在什么条件下进入?两者的本质区别是什么?",
+      "q_en": "Under what conditions does a neighbor enter Init and 2-Way, and what is the essential difference?",
+      "answer_template_zh": {
+        "opening": "收到 hello 报文进入 Init;在收到的 hello 报文里看到自己的 router ID 才进入 2-Way。区别在于单向与双向。",
+        "body": [
+          {"label": "Init 的含义",
+           "content": "Init 只说明本端收到了对方的 hello,并不说明对方收到了本端的 hello,所以只能证明单向。"},
+          {"label": "2-Way 的含义",
+           "content": "对方发来的 hello 里出现了本端的 router ID,说明对方此前收到过本端的 hello,双向可达因此得到确认,这正是 2-Way 这个名字的来源。"}
+        ],
+        "closing": "所以状态停在 Init,通常意味着有一个方向的 hello 没有被对端收到。"
+      },
+      "answer_template_en": {
+        "opening": "Receiving a hello packet moves the neighbor to Init; seeing its own router ID in the received hello packet moves it to 2-Way. The difference is one direction versus both directions.",
+        "body": [
+          {"label": "What Init means",
+           "content": "Init only shows that this router received a hello packet from the other side; it says nothing about the reverse direction."},
+          {"label": "What 2-Way means",
+           "content": "Once the router sees its own router ID in the received hello packet, the other router must have received its hello earlier, so both directions are confirmed."}
+        ],
+        "closing": "A neighbor stuck in Init therefore usually means one direction of hello packets is not getting through."
+      },
+      "scoring_points_zh": [
+        "Init 的条件说成收到 hello 报文",
+        "2-Way 的条件说成看到自己的 router ID",
+        "点出单向与双向这一本质区别"
+      ],
+      "scoring_points_en": [
+        "Gives receiving a hello packet as the Init trigger",
+        "Gives seeing its own router ID as the 2-Way trigger",
+        "Explains the one-way versus two-way difference"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+         "quote": "When a router receives a hello packet it moves the neighbor to the Init state."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+         "quote": "Once the router sees its own router ID in the received hello packet, the neighbor moves to the 2-Way state."}
+      ]
+    },
+    {
+      "id": "f4",
+      "difficulty": 2,
+      "tags_zh": ["选举", "高频"],
+      "q_zh": "广播网络上 DR 与 BDR 是怎么选出来的?判定顺序和特例分别是什么?",
+      "q_en": "How are the DR and BDR elected on a broadcast network, in what order are the criteria applied, and what is the exception?",
+      "answer_template_zh": {
+        "opening": "先比 OSPF priority,最高者成为 DR;priority 相同再比 router ID,最大者赢得选举;priority 为 0 的永远不会成为 DR。",
+        "body": [
+          {"label": "第一顺位",
+           "content": "OSPF priority 最高的路由器成为 DR,方向是越高越优先,不是越低越优先。"},
+          {"label": "第二顺位",
+           "content": "只有在 priority 相同分不出胜负时,才比较 router ID,并且同样是最大者赢得选举。"},
+          {"label": "特例",
+           "content": "priority 为 0 意味着该路由器永远不会成为 DR,直接被排除在比较之外。"}
+        ],
+        "closing": "选举的前提是广播网络,原文明确限定了这一点,不能不加条件地推广到其他情况。"
+      },
+      "answer_template_en": {
+        "opening": "First compare OSPF priority and the highest becomes the DR; if the priority is equal, compare router ID and the highest wins; a priority of 0 never becomes the DR.",
+        "body": [
+          {"label": "First criterion",
+           "content": "The router with the highest OSPF priority becomes the designated router, so higher wins rather than lower."},
+          {"label": "Second criterion",
+           "content": "Only when the priority is equal does the router with the highest router ID win the election."},
+          {"label": "Exception",
+           "content": "A priority of 0 means the router will never become the designated router and is excluded from the comparison."}
+        ],
+        "closing": "Note the precondition: this election happens on a broadcast network, as the material states explicitly."
+      },
+      "scoring_points_zh": [
+        "顺序正确:先 priority 后 router ID",
+        "方向正确:两者都是最大者胜",
+        "说出 priority 为 0 的特例",
+        "点出前提是广播网络"
+      ],
+      "scoring_points_en": [
+        "Correct order: priority first, then router ID",
+        "Correct direction: highest wins in both cases",
+        "Mentions the priority 0 exception",
+        "Notes the broadcast network precondition"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "On a broadcast network OSPF elects a designated router and a backup designated router."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "When the priority is equal, the router with the highest router ID wins the election."}
+      ]
+    },
+    {
+      "id": "f5",
+      "difficulty": 3,
+      "tags_zh": ["设计意图"],
+      "q_zh": "为什么广播网络上要选举 DR 和 BDR?选完之后邻接关系变成什么样?",
+      "q_en": "Why does OSPF elect a DR and a BDR on a broadcast network, and what do the adjacencies look like afterwards?",
+      "answer_template_zh": {
+        "opening": "因为选完之后其余路由器只与 DR 和 BDR 建立完全邻接,不再两两建立,完全邻接关系被集中到两台路由器上。",
+        "body": [
+          {"label": "选举结果",
+           "content": "在广播网络上,OSPF 会选出一台 DR 和一台 BDR,BDR 是 DR 的备份。"},
+          {"label": "邻接关系的形态",
+           "content": "原文用了 only:其余路由器只与 DR 和 BDR 建立完全邻接,它们彼此之间不建立完全邻接。"}
+        ],
+        "closing": "所以选举的意义就在于改变完全邻接关系的形态,而不只是选出一个角色名。"
+      },
+      "answer_template_en": {
+        "opening": "Because afterwards all other routers form a full adjacency only with the DR and the BDR instead of with each other, concentrating full adjacencies on two routers.",
+        "body": [
+          {"label": "Election result",
+           "content": "On a broadcast network OSPF elects a designated router and a backup designated router, the latter acting as the backup."},
+          {"label": "Resulting adjacencies",
+           "content": "All other routers form a full adjacency only with the DR and the BDR, not with one another."}
+        ],
+        "closing": "So the point of the election is to change the shape of the full adjacencies, not merely to assign a title."
+      },
+      "scoring_points_zh": [
+        "说出选出 DR 与 BDR 两台",
+        "说出其余路由器只与这两台建立完全邻接",
+        "点出 only 的排他含义"
+      ],
+      "scoring_points_en": [
+        "States that both a DR and a BDR are elected",
+        "States that other routers form full adjacency only with these two",
+        "Highlights the exclusive meaning of only"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "All other routers form a full adjacency only with the DR and the BDR."}
+      ]
+    },
+    {
+      "id": "f6",
+      "difficulty": 1,
+      "tags_zh": ["验证", "命令"],
+      "q_zh": "怎么验证 OSPF 邻接关系已经建立?输出里你会重点看哪几列?",
+      "q_en": "How do you verify that an OSPF adjacency is established, and which columns of the output do you focus on?",
+      "answer_template_zh": {
+        "opening": "用 show ip ospf neighbor 命令,重点看 State 列和 Interface 列。",
+        "body": [
+          {"label": "State 列",
+           "content": "State 就是前面讲的邻居状态;看到 FULL 说明数据库交换已经完成,停在 Init 或 2-Way 则说明某一步的触发条件还没满足。"},
+          {"label": "Interface 列",
+           "content": "Interface 说明这个邻居是在哪条链路上发现的,便于把问题定位到具体接口。"}
+        ],
+        "closing": "所以验证的判据是 State 到 FULL,并确认它出现在预期的接口上。"
+      },
+      "answer_template_en": {
+        "opening": "Use the show ip ospf neighbor command and focus on the State and Interface columns.",
+        "body": [
+          {"label": "State column",
+           "content": "The State column is the neighbor state discussed earlier: FULL means the database exchange has finished, while Init or 2-Way means some trigger has not been satisfied yet."},
+          {"label": "Interface column",
+           "content": "The Interface column shows on which link the neighbor was discovered, which helps pin the problem to a specific interface."}
+        ],
+        "closing": "The criterion is therefore State reaching FULL on the expected interface."
+      },
+      "scoring_points_zh": [
+        "命令名准确写出 show ip ospf neighbor",
+        "说出 State 列并与状态机对应",
+        "说出 Interface 列的用途"
+      ],
+      "scoring_points_en": [
+        "Gives the exact command show ip ospf neighbor",
+        "Explains the State column and maps it to the state machine",
+        "Explains what the Interface column is for"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 4,
+         "quote": "Use the show ip ospf neighbor command to verify the adjacency."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 4,
+         "quote": "The output below shows the neighbor state and the interface."}
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "s1",
+      "difficulty": 2,
+      "scene_zh": "R1 与 R2 通过 192.168.12.0/24 直连,两侧都启用了 OSPF。在 R1 上执行 show ip ospf neighbor,能看到 R2 的条目,但 State 列一直停在 Init,不再往前推进。接口 GigabitEthernet0/1 状态正常。",
+      "scene_en": "R1 and R2 are directly connected over 192.168.12.0/24 and both run OSPF. On R1 the show ip ospf neighbor output does list R2, but the State column stays at Init and never progresses. Interface GigabitEthernet0/1 is up.",
+      "task_zh": "请根据本章内容说明 Init 意味着什么,还缺哪个条件,以及你会按什么顺序去核对。",
+      "task_en": "Explain what Init means here, which condition is still missing, and in what order you would check things.",
+      "thinking_framework_zh": [
+        "第一步:确认 Init 的含义 —— 本端已经收到了对方的 hello 报文,所以链路上至少有一个方向是通的。",
+        "第二步:确认还缺什么 —— 要进入 2-Way,必须在收到的 hello 报文里看到自己的 router ID,现在没看到。",
+        "第三步:推断方向 —— 没看到自己的 router ID,说明对方此前没有收到过本端的 hello,即反方向有问题。",
+        "第四步:核对四项参数 —— hello interval、dead interval、area ID 和子网掩码必须全部匹配,逐项比对两端配置。",
+        "第五步:回到命令验证 —— 修正后再看 State 列是否从 Init 推进到 2-Way 以至 Full。"
+      ],
+      "ideal_answer_zh": "State 停在 Init 说明 R1 已经收到过 R2 的 hello 报文,所以不是完全不通。要从 Init 进入 2-Way,条件是 R1 在收到的 hello 报文里看到自己的 router ID;既然没进入 2-Way,说明 R2 发来的 hello 里没有 R1 的 router ID,也就意味着 R2 此前没有收到过 R1 的 hello,问题出在 R1 到 R2 这个方向。接着按四项必须匹配的参数逐项核对:hello interval、dead interval、area ID 和子网掩码,任意一项不一致都会导致双方不成为邻居。修正之后再用 show ip ospf neighbor 观察 State 是否推进到 Full。",
+      "ideal_answer_en": "Init means R1 has already received a hello packet from R2, so the link is not completely broken. To move from Init to 2-Way, R1 must see its own router ID in the received hello packet; since that has not happened, the hello packets from R2 do not carry R1 router ID, which implies R2 never received a hello from R1, so the problem is in the R1 to R2 direction. Then check the four parameters that must all match: the hello interval, the dead interval, the area ID and the subnet mask. After fixing them, use show ip ospf neighbor again and watch whether the State progresses to Full.",
+      "scoring_points_zh": [
+        "正确解释 Init 表示已收到对方 hello",
+        "指出进入 2-Way 需要看到自己的 router ID",
+        "由此推断出是反方向的 hello 没有被收到",
+        "列出四项必须匹配的参数作为核对清单",
+        "最后回到 show ip ospf neighbor 验证"
+      ],
+      "scoring_points_en": [
+        "Explains that Init means a hello packet was received",
+        "Notes that 2-Way requires seeing its own router ID",
+        "Infers that the reverse direction hello is not arriving",
+        "Lists the four parameters that must all match",
+        "Verifies again with show ip ospf neighbor"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+         "quote": "When a router receives a hello packet it moves the neighbor to the Init state."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+         "quote": "Once the router sees its own router ID in the received hello packet, the neighbor moves to the 2-Way state."}
+      ],
+      "extension_zh": "现场排查时还会顺手看一眼两端的接口 MTU 与二层是否有过滤,但这属于课程原文之外的工程经验。",
+      "extension_en": "In the field you would also glance at interface MTU and any layer 2 filtering, but that goes beyond the course material."
+    },
+    {
+      "id": "s2",
+      "difficulty": 2,
+      "scene_zh": "R1、R2、R3 接在同一个广播网络上,三台的 OSPF priority 都配成了相同的值。运维希望 R3 一定不要成为 DR,而 R1 最好成为 DR。",
+      "scene_en": "R1, R2 and R3 are attached to the same broadcast network and all three have the same OSPF priority. The operations team wants R3 never to become the DR, while R1 should preferably become the DR.",
+      "task_zh": "请说明当前 priority 相同的情况下谁会当选,以及要达成上述两个目标你会怎么调整,依据是什么。",
+      "task_en": "Explain who wins while the priorities are equal, and how you would adjust things to meet both goals, citing the rules.",
+      "thinking_framework_zh": [
+        "第一步:确认当前判定走到哪一步 —— priority 相同,所以要用第二顺位的 router ID 比较。",
+        "第二步:得出当前结论 —— router ID 最大的那台赢得选举。",
+        "第三步:处理不要当选的需求 —— priority 为 0 的路由器永远不会成为 DR,把 R3 的 priority 设为 0。",
+        "第四步:处理希望当选的需求 —— OSPF priority 最高的路由器成为 DR,把 R1 的 priority 调到高于其他设备。",
+        "第五步:确认前提 —— 这套选举规则的前提是广播网络,当前场景满足。"
+      ],
+      "ideal_answer_zh": "在 priority 相同的情况下,判定进入第二顺位,router ID 最大的路由器赢得选举,所以当前是三台里 router ID 最大的那台成为 DR。要让 R3 一定不当 DR,可以把 R3 的 priority 设为 0,因为 priority 为 0 意味着该路由器永远不会成为 DR。要让 R1 成为 DR,则把 R1 的 OSPF priority 调到比 R2 和 R3 都高,因为 priority 最高的路由器成为 DR,此时不再需要比较 router ID。注意这套规则的前提是广播网络。",
+      "ideal_answer_en": "With equal priorities the second criterion applies, so the router with the highest router ID wins the election. To guarantee that R3 never becomes the DR, set its priority to 0, because a priority of 0 means the router will never become the designated router. To make R1 the DR, raise its OSPF priority above R2 and R3, because the router with the highest OSPF priority becomes the designated router and the router ID no longer matters. Note that these rules apply on a broadcast network.",
+      "scoring_points_zh": [
+        "指出 priority 相同时比较 router ID 且最大者胜",
+        "用 priority 为 0 来实现永不当选",
+        "用提高 priority 来实现优先当选",
+        "点出这套规则的前提是广播网络"
+      ],
+      "scoring_points_en": [
+        "Notes that equal priority falls back to the highest router ID",
+        "Uses priority 0 to guarantee never becoming DR",
+        "Raises priority to make a router win",
+        "Mentions the broadcast network precondition"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "When the priority is equal, the router with the highest router ID wins the election."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "A priority of 0 means the router will never become the designated router."}
+      ]
+    },
+    {
+      "id": "s3",
+      "difficulty": 3,
+      "scene_zh": "同事把某台路由器接口上的 hello interval 从 10 秒改成了别的值,只改了一端。改完之后这条链路上原本正常的邻居关系消失了,而其他链路不受影响。",
+      "scene_en": "A colleague changed the hello interval on one interface of a router from 10 seconds to another value, on one side only. After the change the previously working neighbor on that link disappeared, while other links were unaffected.",
+      "task_zh": "请解释为什么会这样,并说明 hello interval 与 dead interval 之间的关系对这个改动意味着什么。",
+      "task_en": "Explain why this happened, and what the relationship between the hello interval and the dead interval implies for such a change.",
+      "thinking_framework_zh": [
+        "第一步:定位规则 —— hello interval 是四项必须匹配的参数之一。",
+        "第二步:套用规则 —— 只改一端会导致两端的 hello interval 不一致,四项不再全部匹配,因此不成为邻居。",
+        "第三步:解释影响范围 —— 参数匹配是按链路成对判定的,所以只有这条链路受影响。",
+        "第四步:补充关联参数 —— dead interval 默认 40 秒,是 hello interval 的四倍,而它本身也是必须匹配的四项之一。",
+        "第五步:给出正确做法 —— 两端一起改,并保证四项参数在两端一致。"
+      ],
+      "ideal_answer_zh": "因为 hello interval 是成为邻居必须匹配的四项参数之一,只改一端会造成两端不一致,四项不再全部匹配,于是两台路由器不再成为邻居,邻居关系随之消失。由于这四项是按链路两端逐项比对的,所以只有被改动的那条链路受影响,其他链路不变。另外要注意 dead interval 默认 40 秒,是 hello interval 的四倍,而 dead interval 本身也在必须匹配的四项之内,因此改动这类定时器时必须两端一起改,并确认四项参数在两端完全一致。",
+      "ideal_answer_en": "The hello interval is one of the four parameters that must match for two routers to become neighbors. Changing only one side makes the two ends disagree, so not all four parameters match and the routers stop being neighbors, which is why the neighbor disappeared. Because these parameters are compared per link, only the changed link is affected. Also note that the dead interval is 40 seconds by default, four times the hello interval, and the dead interval is itself one of the four parameters, so such timers must always be changed on both ends.",
+      "scoring_points_zh": [
+        "指出 hello interval 属于四项必须匹配的参数",
+        "解释只改一端导致不匹配因而邻居消失",
+        "解释为什么只影响这一条链路",
+        "提到 dead interval 40 秒与 hello interval 的四倍关系"
+      ],
+      "scoring_points_en": [
+        "Identifies the hello interval as one of the four matching parameters",
+        "Explains that a one-sided change breaks the match",
+        "Explains why only that link is affected",
+        "Mentions the 40 second dead interval and the four times relationship"
+      ],
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+         "quote": "Two routers become neighbors only when the hello interval, the dead interval, the area ID and the subnet mask all match."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+         "quote": "The dead interval is 40 seconds by default, which is four times the hello interval."}
+      ]
+    }
+  ],
+  "followups": [
+    {
+      "id": "u1",
+      "topic_zh": "邻居状态机",
+      "root_q_zh": "OSPF 邻居有哪几个状态?",
+      "root_q_en": "Which states does an OSPF neighbor go through?",
+      "layers": [
+        {
+          "level": 1,
+          "q_zh": "请按顺序说出本章讲到的邻居状态。",
+          "q_en": "List the neighbor states covered in this chapter in order.",
+          "answer_zh": "顺序是 Down、Init、2-Way、Full。Down 表示还没有收到过 hello 报文,Full 表示数据库交换完成、邻接建立完毕。",
+          "answer_en": "The order is Down, Init, 2-Way and Full. Down means no hello packet has been received yet, and Full means the database exchange has finished and the adjacency is complete.",
+          "probe_intent_zh": "先确认基础顺序记不记得,这是后面两层的地基。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+             "quote": "The first state is Down, where no hello packet has been received yet."}
+          ]
+        },
+        {
+          "level": 2,
+          "q_zh": "那从 Init 到 2-Way 具体是靠什么触发的?为什么是这个条件?",
+          "q_en": "What exactly triggers the move from Init to 2-Way, and why that condition?",
+          "answer_zh": "触发条件是路由器在收到的 hello 报文里看到了自己的 router ID。之所以用这个条件,是因为对方发来的 hello 里出现本端的 router ID,说明对方此前收到过本端的 hello,双向可达因此得到确认,而单纯又收到一个 hello 只能证明单向。",
+          "answer_en": "The trigger is that the router sees its own router ID in the received hello packet. That condition is used because the other router could only include this router ID after receiving its hello, so both directions are confirmed, whereas merely receiving another hello proves only one direction.",
+          "probe_intent_zh": "验证候选人是背了状态名还是真的理解每一步的触发条件与设计意图。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+             "quote": "Once the router sees its own router ID in the received hello packet, the neighbor moves to the 2-Way state."}
+          ]
+        },
+        {
+          "level": 3,
+          "q_zh": "如果状态一直停在 2-Way 没有到 Full,按本章内容还差哪一步?看到有邻居条目能不能说明邻接已经建好?",
+          "q_en": "If the state stays at 2-Way and never reaches Full, which step is missing according to this chapter, and does seeing a neighbor entry prove the adjacency is complete?",
+          "answer_zh": "还差数据库交换。原文说的是数据库交换完成之后邻居才到达 Full,所以停在 2-Way 意味着数据库交换尚未完成。也因此,看到有邻居条目并不能说明邻接已经建好 —— 原文强调邻居在 adjacency 完成之前会经历若干状态,判断标准应当是 State 到 Full。",
+          "answer_en": "The database exchange is missing. The material states that the neighbor reaches the Full state after the database exchange finishes, so staying at 2-Way means that exchange has not completed. Seeing a neighbor entry therefore does not prove the adjacency is complete, since a neighbor moves through several states before the adjacency is complete; the criterion should be State reaching Full.",
+          "probe_intent_zh": "验证候选人是否理解中间态与最终态的差别,以及能否用它纠正常见的错误判据。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+             "quote": "After the database exchange finishes, the neighbor reaches the Full state."}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "u2",
+      "topic_zh": "DR 与 BDR 选举",
+      "root_q_zh": "广播网络上 DR 是怎么选出来的?",
+      "root_q_en": "How is the DR elected on a broadcast network?",
+      "layers": [
+        {
+          "level": 1,
+          "q_zh": "选举的判定条件有哪些,先后顺序是什么?",
+          "q_en": "Which criteria are used in the election and in what order?",
+          "answer_zh": "第一顺位是 OSPF priority,最高者成为 DR;priority 相同时才比第二顺位 router ID,最大者赢得选举。两个条件的方向都是越大越赢。",
+          "answer_en": "The first criterion is OSPF priority and the highest becomes the DR; only when the priority is equal is the router ID compared, and again the highest wins. Both criteria favour the larger value.",
+          "probe_intent_zh": "确认顺序和方向这两个最容易记反的点。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+             "quote": "The router with the highest OSPF priority becomes the designated router."}
+          ]
+        },
+        {
+          "level": 2,
+          "q_zh": "如果我想让某台路由器绝对不要成为 DR,按本章内容怎么做?为什么这样就有效?",
+          "q_en": "If I want a router never to become the DR, what does this chapter say to do, and why does it work?",
+          "answer_zh": "把它的 priority 设为 0。因为原文明确说 priority 为 0 意味着该路由器永远不会成为 DR,也就是说它不再参与谁的 priority 更高这一步比较,而不是仅仅优先级较低。",
+          "answer_en": "Set its priority to 0. The material states that a priority of 0 means the router will never become the designated router, so it is excluded from the comparison rather than merely being less preferred.",
+          "probe_intent_zh": "验证候选人能否把规则反过来用,以及是否理解 0 是排除而不是最低优先。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+             "quote": "A priority of 0 means the router will never become the designated router."}
+          ]
+        },
+        {
+          "level": 3,
+          "q_zh": "选出 DR 和 BDR 之后,这个广播网络上的完全邻接关系是什么形态?这条规则的适用前提是什么?",
+          "q_en": "After the DR and BDR are elected, what do the full adjacencies look like on that broadcast network, and what is the precondition for this rule?",
+          "answer_zh": "其余路由器只与 DR 和 BDR 建立完全邻接,彼此之间不建立,原文用的是 only。适用前提是广播网络,原文在描述选举时明确写了 On a broadcast network,所以不能不加条件地推广到其他网络类型。",
+          "answer_en": "All other routers form a full adjacency only with the DR and the BDR, not with each other. The precondition is a broadcast network, since the material introduces the election with On a broadcast network, so the rule should not be generalised without that condition.",
+          "probe_intent_zh": "验证候选人有没有边界意识:既知道结果形态,也知道规则的适用范围。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+             "quote": "All other routers form a full adjacency only with the DR and the BDR."}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "u3",
+      "topic_zh": "定时器与参数匹配",
+      "root_q_zh": "OSPF 的 hello interval 和 dead interval 默认是多少?",
+      "root_q_en": "What are the default hello interval and dead interval in OSPF?",
+      "layers": [
+        {
+          "level": 1,
+          "q_zh": "这两个定时器的默认值分别是多少?",
+          "q_en": "What are the default values of these two timers?",
+          "answer_zh": "在广播网段上 hello 报文每 10 秒发送一次,也就是 hello interval 为 10 秒;dead interval 默认是 40 秒。",
+          "answer_en": "On a broadcast network segment the hello packet is sent every 10 seconds, so the hello interval is 10 seconds, and the dead interval is 40 seconds by default.",
+          "probe_intent_zh": "确认基础数值记得准不准,这是送分题也是筛人题。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+             "quote": "The hello packet is sent to multicast address 224.0.0.5 every 10 seconds on a broadcast network segment."}
+          ]
+        },
+        {
+          "level": 2,
+          "q_zh": "这两个值之间是什么关系?为什么要记住这个关系而不是两个孤立的数字?",
+          "q_en": "How are the two values related, and why remember the relationship rather than two isolated numbers?",
+          "answer_zh": "dead interval 默认 40 秒,正好是 hello interval 的四倍。记住四倍关系的好处是:两者不是互相独立的取值,调整其中一个时要考虑它们之间的对应关系,而不是随手改一个数字。",
+          "answer_en": "The dead interval is 40 seconds by default, which is four times the hello interval. Remembering the ratio matters because the two values are not independent, so changing one has to be considered together with the other.",
+          "probe_intent_zh": "验证候选人是否理解数值之间的结构关系,而不是死记两个数。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+             "quote": "The dead interval is 40 seconds by default, which is four times the hello interval."}
+          ]
+        },
+        {
+          "level": 3,
+          "q_zh": "如果只在一端把 hello interval 改掉,会有什么后果?为什么?",
+          "q_en": "What happens if you change the hello interval on one side only, and why?",
+          "answer_zh": "两台路由器会不再成为邻居。因为 hello interval 是必须匹配的四项参数之一,而原文的条件是四项全部匹配才成为邻居;只改一端会让这一项不一致,从而整体条件不成立。dead interval 同理,它也在这四项之内。",
+          "answer_en": "The two routers stop being neighbors, because the hello interval is one of the four parameters and the condition is that all four must match; changing one side breaks that. The same applies to the dead interval, which is also one of the four.",
+          "probe_intent_zh": "验证候选人能否把定时器知识和邻居准入条件联系起来,而不是孤立记忆。",
+          "grounding": [
+            {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+             "quote": "Two routers become neighbors only when the hello interval, the dead interval, the area ID and the subnet mask all match."}
+          ]
+        }
+      ]
+    }
+  ],
+  "pitfalls": [
+    {
+      "id": "p1",
+      "trap_type_zh": "概念混淆",
+      "wrong_zh": "很多人会说:只要再收到一个 hello 报文,邻居就从 Init 变成 2-Way。",
+      "wrong_en": "Many candidates say that receiving another hello packet moves the neighbor from Init to 2-Way.",
+      "why_wrong_zh": "错在把 Init 的触发条件套用到了 2-Way。原文说的是路由器在收到的 hello 报文里看到自己的 router ID,邻居才进入 2-Way;再收到一个 hello 仍然只能证明单向。",
+      "correct_zh": "正确说法是:收到 hello 报文进入 Init;在收到的 hello 报文里看到自己的 router ID 才进入 2-Way,这一步确认的是双向可达。",
+      "correct_en": "The correct answer is that receiving a hello packet moves the neighbor to Init, while seeing its own router ID in the received hello packet is what moves it to 2-Way, confirming both directions.",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 2,
+         "quote": "Once the router sees its own router ID in the received hello packet, the neighbor moves to the 2-Way state."}
+      ]
+    },
+    {
+      "id": "p2",
+      "trap_type_zh": "条件遗漏",
+      "wrong_zh": "很多人会说:只要两端 hello interval 一样,就能成为 OSPF 邻居。",
+      "wrong_en": "Many candidates say that matching hello intervals on both ends is enough to become OSPF neighbors.",
+      "why_wrong_zh": "错在只记住了四项中的一项。原文的条件是 hello interval、dead interval、area ID 和子网掩码四项全部匹配,才会成为邻居,漏掉任意一项都会导致判断出错。",
+      "correct_zh": "正确说法是:hello interval、dead interval、area ID 和子网掩码四项必须同时匹配,任意一项不一致都不会成为邻居。",
+      "correct_en": "The correct answer is that the hello interval, the dead interval, the area ID and the subnet mask must all match; a single mismatch prevents the adjacency.",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 1,
+         "quote": "Two routers become neighbors only when the hello interval, the dead interval, the area ID and the subnet mask all match."}
+      ]
+    },
+    {
+      "id": "p3",
+      "trap_type_zh": "方向记反",
+      "wrong_zh": "很多人会说:OSPF priority 越小越优先,所以 priority 小的成为 DR。",
+      "wrong_en": "Many candidates say that a lower OSPF priority is preferred, so the router with the smallest priority becomes the DR.",
+      "why_wrong_zh": "方向记反了。原文明确写的是 OSPF priority 最高的路由器成为 DR,后续比较 router ID 时同样是最大者赢得选举,两个条件都是越大越优先。",
+      "correct_zh": "正确说法是:OSPF priority 最高的路由器成为 DR;priority 相同时,router ID 最大的赢得选举,两步都是越大越赢。",
+      "correct_en": "The correct answer is that the router with the highest OSPF priority becomes the DR, and when the priority is equal the router with the highest router ID wins; in both steps the larger value wins.",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "The router with the highest OSPF priority becomes the designated router."}
+      ]
+    },
+    {
+      "id": "p4",
+      "trap_type_zh": "特例遗漏",
+      "wrong_zh": "很多人会说:priority 设成 0 只是让这台路由器优先级最低,理论上还是有机会当 DR。",
+      "wrong_en": "Many candidates say that setting the priority to 0 merely makes a router least preferred, so it could still become the DR.",
+      "why_wrong_zh": "错在把排除理解成了降低优先。原文说的是 priority 为 0 意味着该路由器永远不会成为 DR,这是一个绝对结论,而不是在比较里排在最后。",
+      "correct_zh": "正确说法是:priority 为 0 的路由器永远不会成为 DR,它被直接排除在 DR 的候选之外,而不是优先级最低。",
+      "correct_en": "The correct answer is that a priority of 0 means the router will never become the designated router; it is excluded from candidacy rather than merely ranked last.",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "A priority of 0 means the router will never become the designated router."}
+      ]
+    },
+    {
+      "id": "p5",
+      "trap_type_zh": "过度推广",
+      "wrong_zh": "很多人会说:OSPF 只要跑起来就会选 DR 和 BDR,而且所有路由器之间都会两两建立完全邻接。",
+      "wrong_en": "Many candidates say that OSPF always elects a DR and a BDR and that every pair of routers forms a full adjacency.",
+      "why_wrong_zh": "两处都错。原文把选举限定在广播网络上,不能不加条件地推广;而且选出之后其余路由器只与 DR 和 BDR 建立完全邻接,原文用的是 only,并不是两两建立。",
+      "correct_zh": "正确说法是:在广播网络上 OSPF 才会选出 DR 和 BDR,选出之后其余路由器只与 DR 和 BDR 建立完全邻接,它们彼此之间不建立。",
+      "correct_en": "The correct answer is that OSPF elects a DR and a BDR on a broadcast network, and afterwards all other routers form a full adjacency only with the DR and the BDR, not with each other.",
+      "grounding": [
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "On a broadcast network OSPF elects a designated router and a backup designated router."},
+        {"pdf_id": "__WILL_BE_PATCHED__", "page": 3,
+         "quote": "All other routers form a full adjacency only with the DR and the BDR."}
+      ]
+    }
+  ],
+  "self_check_zh": [
+    "四项必须匹配的参数,能不看笔记一口气说全吗?",
+    "Init 与 2-Way 的触发条件,能说出本质区别吗?",
+    "DR 选举的顺序、方向、特例三点,能一起说完整吗?",
+    "选出 DR 与 BDR 之后邻接关系的形态,能说清 only 的含义吗?",
+    "show ip ospf neighbor 输出里,State 与 Interface 两列分别看什么?"
+  ]
+}

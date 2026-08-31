@@ -39,12 +39,34 @@ def _codes(items: Any) -> str:
     return " · ".join(f"`{x}`" for x in (items or []))
 
 
+def _grounding_fmt(blocks: Any) -> str:
+    """把 grounding 列表渲染成一行紧凑的出处标注。"""
+    parts = []
+    for g in (blocks or []):
+        quote = str(g.get("quote", ""))
+        short = quote if len(quote) <= 90 else quote[:88].rstrip() + "…"
+        parts.append(f"`{g.get('pdf_id')}` p.{g.get('page')} — “{short}”")
+    return " ; ".join(parts) or "-"
+
+
+def _zip_rows(zh: Any, en: Any) -> list[tuple[str, str]]:
+    """把中英两个列表配成表格行,长度不等时补空。"""
+    zh_list = list(zh or [])
+    en_list = list(en or [])
+    n = max(len(zh_list), len(en_list))
+    zh_list += [""] * (n - len(zh_list))
+    en_list += [""] * (n - len(en_list))
+    return [(str(a).replace("|", "\\|"), str(b).replace("|", "\\|"))
+            for a, b in zip(zh_list, en_list)]
+
+
 def _env() -> Environment:
     env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)),
                       undefined=StrictUndefined,
                       trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
     env.filters["pages_fmt"] = _pages_fmt
     env.filters["codes"] = _codes
+    env.filters["grounding_fmt"] = _grounding_fmt
     return env
 
 
@@ -73,6 +95,8 @@ def _normalize(note: dict[str, Any]) -> dict[str, Any]:
             sec.setdefault(key, [])
         for pt in sec["points"]:
             pt.setdefault("kind", "fact")
+            pt.setdefault("detail_zh", "")
+            pt.setdefault("also_pages", [])
         for fig in sec["figures"]:
             fig.setdefault("callouts_zh", [])
             fig.setdefault("labels_seen", [])
@@ -85,6 +109,12 @@ def _normalize(note: dict[str, Any]) -> dict[str, Any]:
     fey = note.setdefault("feynman", {})
     fey.setdefault("blind_spots_zh", [])
     fey.setdefault("review_plan_zh", [])
+    fey.setdefault("must_master", [])
+    fey.setdefault("difficulties", [])
+    for m in fey["must_master"]:
+        m.setdefault("memory_hook_zh", "")
+    for d in fey["difficulties"]:
+        d.setdefault("figure_refs", [])
     for q in fey.get("questions", []):
         q.setdefault("figure_refs", [])
         q.setdefault("scoring_points_zh", [])
@@ -197,6 +227,82 @@ def assemble_one(cfg: Config, item: dict[str, Any], verified: bool = False,
     )
     write_text(md_path, markdown)
     log(f"笔记已生成: {md_path}", "ok")
+    return md_path
+
+
+# ------------------------------------------------------------------ 面试复习笔记
+
+LAYER_LABEL = {1: "(是什么)", 2: "(为什么 / 怎么做)", 3: "(边界与代价)"}
+
+
+def assemble_group(cfg: Config, group: dict[str, Any], verified: bool = False,
+                   stats: dict[str, Any] | None = None) -> Path:
+    from nlnotes.groups import chapter_notes, interview_path
+
+    ip = interview_path(cfg, group["id"])
+    if not ip.exists():
+        raise FileNotFoundError(f"缺少 interview.json: {ip}(请先按 TASK.md 产出)")
+    iv = read_json(ip)
+
+    iv.setdefault("overview_zh", "")
+    iv.setdefault("self_check_zh", [])
+    for c in iv.get("covered_chapters", []):
+        c.setdefault("key_points_zh", [])
+    for f in iv.get("fundamentals", []):
+        f.setdefault("tags_zh", [])
+        f.setdefault("difficulty", 2)
+        f.setdefault("extension_zh", "")
+        f.setdefault("extension_en", "")
+        f["scoring_rows"] = _zip_rows(f.get("scoring_points_zh"), f.get("scoring_points_en"))
+    for s in iv.get("scenarios", []):
+        s.setdefault("difficulty", 2)
+        s.setdefault("extension_zh", "")
+        s.setdefault("extension_en", "")
+        s["scoring_rows"] = _zip_rows(s.get("scoring_points_zh"), s.get("scoring_points_en"))
+    for u in iv.get("followups", []):
+        u.setdefault("topic_zh", "")
+        for l in u.get("layers", []):
+            l.setdefault("extension_zh", "")
+    for p in iv.get("pitfalls", []):
+        p.setdefault("trap_type_zh", "")
+        p.setdefault("extension_zh", "")
+
+    key = iv.get("group_key") or group["key"]
+    rel = (f"{key}/00-面试复习-{group['title']}.md" if key != "(根目录)"
+           else f"00-面试复习-{group['title']}.md")
+    md_path = cfg.notes_dir / rel
+    note_dir = ensure_dir(md_path.parent)
+
+    # 章节笔记的相对链接(方便从复习笔记跳回原章)
+    chapter_links: dict[str, str] = {}
+    by_id = {it["id"]: it for it in group["items"]}
+    for c in iv.get("covered_chapters", []):
+        item = by_id.get(c.get("pdf_id"))
+        if item:
+            target = cfg.notes_dir / item["note_rel_path"]
+            chapter_links[c["pdf_id"]] = rel_posix(target, note_dir)
+        else:
+            chapter_links[c.get("pdf_id", "")] = "#"
+
+    st = stats or {}
+    meta = {
+        "version": __version__,
+        "generated_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "group_id": group["id"],
+        "chapter_count": len(iv.get("covered_chapters", [])),
+        "fundamentals": len(iv.get("fundamentals", [])),
+        "scenarios": len(iv.get("scenarios", [])),
+        "followups": len(iv.get("followups", [])),
+        "pitfalls": len(iv.get("pitfalls", [])),
+        "grounding_checked": st.get("grounding_checked", 0),
+        "grounding_matched": st.get("grounding_matched", 0),
+        "verified": verified,
+    }
+
+    tpl = _env().get_template("interview.md.j2")
+    write_text(md_path, tpl.render(iv=iv, meta=meta, chapter_links=chapter_links,
+                                   layer_label=LAYER_LABEL))
+    log(f"面试复习笔记已生成: {md_path}", "ok")
     return md_path
 
 

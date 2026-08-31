@@ -55,6 +55,11 @@ generated_at: "{{ meta.generated_at }}"
 {% for pt in sec.points %}
 - **{{ pt.text_zh }}** <sub>(p.{{ pt.page }})</sub>
   > 原文:{{ pt.text_en_quote }}
+{% if pt.detail_zh %}
+
+  {{ pt.detail_zh }}{% if pt.also_pages %} <sub>(另见 {{ pt.also_pages | pages_fmt }})</sub>{% endif %}
+
+{% endif %}
 {% endfor %}
 {% for fig in sec.figures %}
 {% set art = figure_assets[fig.figure_id] %}
@@ -169,7 +174,9 @@ generated_at: "{{ meta.generated_at }}"
 ## 五、费曼学习法检验 / Feynman Review
 
 > 费曼学习法四步:**讲出来 → 找卡壳 → 回原文 → 再讲一遍**。
-> 下面的题目全部来自本章原文,不超纲。先自己答,再看答案。
+> 本节全部来自本章原文,不超纲、不发散。
+> **面试相关内容**(高频原理题、场景题、连环追问、避坑指南)在本协议的
+> 面试复习笔记里,不在单章笔记中 —— 那里素材跨章,追问才有深度。
 
 ### 第 1 步:用大白话复述 / Explain it back
 
@@ -177,7 +184,38 @@ generated_at: "{{ meta.generated_at }}"
 
 **做法:** 合上笔记,照着上面这段话的思路用自己的话讲一遍。讲不下去的地方,就是你的盲点。
 
-### 第 2 步:自测题 / Self-test Questions
+### 第 2 步:必须掌握的关键知识点 / Must Master
+
+> 本章最该记住的内容。逐条自问:能不能不看笔记讲清楚?
+
+{% for m in note.feynman.must_master %}
+**{{ loop.index }}. {{ m.point_zh }}** <sub>({{ m.source_pages | pages_fmt }})</sub>
+
+- **为什么必须掌握**:{{ m.why_zh }}
+{% if m.memory_hook_zh %}
+- **记忆抓手**:{{ m.memory_hook_zh }}
+{% endif %}
+- <sub>原文依据:{{ m.evidence_quote }}</sub>
+
+{% endfor %}
+
+### 第 3 步:本章难点 / Difficulties
+
+> 难点不是"内容多",而是"容易理解错"。下面每条都说清了难在哪、怎么突破。
+
+{% for d in note.feynman.difficulties %}
+#### 难点 {{ loop.index }}:{{ d.name_zh }} <sub>({{ d.source_pages | pages_fmt }})</sub>
+
+- **为什么容易卡住**:{{ d.why_hard_zh }}
+- **怎么突破**:{{ d.how_to_break_zh }}
+{% if d.figure_refs %}
+- **对照图**:{{ d.figure_refs | codes }}
+{% endif %}
+- <sub>原文依据:{{ d.evidence_quote }}</sub>
+
+{% endfor %}
+
+### 第 4 步:自测题 / Self-test Questions
 {% for q in note.feynman.questions %}
 
 **{{ q.id | upper }}.**〔{{ type_label[q.type] }} · 难度 {{ '★' * q.difficulty }}〕
@@ -189,7 +227,7 @@ generated_at: "{{ meta.generated_at }}"
 {% endif %}
 {% endfor %}
 
-### 第 3 步:常见盲点 / Common blind spots
+### 第 5 步:常见盲点 / Common blind spots
 
 {% if note.feynman.blind_spots_zh %}
 {% for b in note.feynman.blind_spots_zh %}
@@ -200,7 +238,7 @@ generated_at: "{{ meta.generated_at }}"
 {% endif %}
 {% if note.feynman.review_plan_zh %}
 
-### 第 4 步:复习计划 / Review plan
+### 第 6 步:复习计划 / Review plan
 
 {% for r in note.feynman.review_plan_zh %}
 - {{ r }}

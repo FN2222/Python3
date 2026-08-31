@@ -105,5 +105,34 @@ def build(out_dir: Path) -> Path:
     return pdf
 
 
+def build_scanned(out_dir: Path) -> Path:
+    """再造一份"扫描件"PDF(整页是图片、没有文本层),用来验证 audit 能把它剔除。"""
+    out_dir = out_dir / "IGP" / "OSPF"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp = out_dir.parent.parent / "_img"
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    page_img = tmp / "scanned-page.png"
+    img = Image.new("RGB", (1240, 1754), "white")
+    d = ImageDraw.Draw(img)
+    for i in range(28):                    # 用线条模拟扫描出来的文字行
+        y = 160 + i * 52
+        d.line([(120, y), (1100 - (i % 5) * 90, y)], fill=(70, 70, 70), width=6)
+    d.ellipse([420, 1180, 820, 1420], outline=(40, 80, 140), width=8)
+    img.save(page_img)
+
+    pdf = out_dir / "OSPF Scanned Handout.pdf"
+    c = canvas.Canvas(str(pdf), pagesize=A4)
+    for _ in range(3):
+        c.drawImage(str(page_img), 0, 0, width=W, height=H)
+        c.showPage()
+    c.save()
+    print(f"已生成扫描件测试 PDF: {pdf}")
+    return pdf
+
+
 if __name__ == "__main__":
-    build(Path(sys.argv[1] if len(sys.argv) > 1 else "tests/_tmp/source"))
+    target = Path(sys.argv[1] if len(sys.argv) > 1 else "tests/_tmp/source")
+    build(target)
+    if "--with-scanned" in sys.argv:
+        build_scanned(target)

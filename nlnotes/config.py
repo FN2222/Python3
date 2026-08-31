@@ -48,6 +48,9 @@ DEFAULTS: dict[str, Any] = {
     "max_questions": 20,
     "required_question_types": ["concept", "process"],
     "min_sections": 3,
+    # "详尽扎实"的可度量代理:平均每个正文页至少要有多少条知识点。
+    # 低于该密度说明笔记在做空洞概括,而不是真的把原文讲透。
+    "min_points_per_content_page": 2.0,
     "require_figure_when_available": True,   # PDF 有拓扑图时,笔记必须引用
     "min_figure_reference_ratio": 0.6,       # 至少引用可用拓扑图的比例
     "token_grounding": True,           # 技术性 ASCII token 必须出现在原文
@@ -62,6 +65,42 @@ DEFAULTS: dict[str, Any] = {
         "Mermaid", "SVG", "PNG", "GIF", "MP4", "AI", "PDF", "Markdown",
         "L2", "L3", "IPv4", "IPv6", "Q", "A",
     ],
+
+    # ---------- 协议级面试复习笔记 ----------
+    # 面试题(基础/原理题、场景题、连环追问、避坑)放在整个协议之后,而不是每章之后,
+    # 这样跨章素材足够,追问才能有深度。
+    # group_depth <= 0 表示按"最后一层目录"分组(通常就是协议名,如 IGP/OSPF)。
+    "group_depth": 0,
+    "interview_quote_threshold": 88,     # grounding 原文比对阈值
+    "interview_token_grounding": True,   # 受约束字段仍要回查本协议原文
+    "interview_min_must_master": 5,
+    "interview_min_fundamentals": 6,
+    "interview_min_scenarios": 3,
+    "interview_min_followups": 3,
+    "interview_min_pitfalls": 5,
+    # 生成面试复习笔记时,附给模型的各章原文总字符预算(避免上下文超限)
+    "group_source_chars_budget": 120000,
+
+    # ---------- PDF 体检(audit) ----------
+    "audit_min_chars_per_page": 120,     # 低于此值判为疑似扫描件/无文本层
+    "audit_min_pages": 1,
+    "audit_max_garbled_ratio": 0.25,     # 乱码字符占比上限(CID 未映射等)
+    "respect_audit_exclusions": True,    # 后续阶段自动跳过 audit 剔除的 PDF
+
+    # ---------- AI 自动撰写(write) ----------
+    # 兼容 OpenAI Chat Completions 协议的任何服务:DeepSeek / 通义 / 智谱 / Kimi /
+    # OpenRouter / 本地 vLLM、Ollama 等。留空 base_url 则默认 OpenAI 官方。
+    "writer_base_url": "https://api.deepseek.com/v1",
+    "writer_model": "deepseek-chat",
+    "writer_api_key_env": "NLNOTES_API_KEY",
+    "writer_temperature": 0.2,
+    "writer_max_tokens": 16000,
+    "writer_max_rounds": 4,              # 每章最多"写→校验→修"几轮
+    "writer_timeout": 600,
+    "writer_retry_on_error": 2,          # 网络/限流错误重试次数
+    "writer_sleep_between": 1.0,         # 章节之间的间隔秒数(避免限流)
+    "writer_price_in_per_mtok": 0.27,    # 仅用于成本估算(美元/百万 token),按官方定价填
+    "writer_price_out_per_mtok": 1.10,
 
     # ---------- 可视化渲染 ----------
     "mermaid_cli": "mmdc",            # 可选;没装就在 Markdown 内联 mermaid 代码块
@@ -170,7 +209,9 @@ def load_config(path: str | os.PathLike[str] | None = None,
 
     for key, env in (("source_root", "NLNOTES_SOURCE_ROOT"),
                      ("notes_dir", "NLNOTES_NOTES_DIR"),
-                     ("build_dir", "NLNOTES_BUILD_DIR")):
+                     ("build_dir", "NLNOTES_BUILD_DIR"),
+                     ("writer_base_url", "NLNOTES_WRITER_BASE_URL"),
+                     ("writer_model", "NLNOTES_WRITER_MODEL")):
         if os.environ.get(env):
             cfg.data[key] = os.environ[env]
 

@@ -11,8 +11,8 @@
     "source_rel_path": {"type": "string", "minLength": 1},
     "title_en": {"type": "string", "minLength": 1},
     "title_zh": {"type": "string", "minLength": 1},
-    "summary_zh": {"type": "string", "minLength": 30,
-                   "description": "3-5 句话说明本章讲什么、解决什么问题,只能来自原文"},
+    "summary_zh": {"type": "string", "minLength": 80,
+                   "description": "4-8 句话说明本章讲什么、解决什么问题、核心机制是什么。只能来自原文,禁止空洞概括"},
     "scope_zh": {"type": "string", "minLength": 10,
                  "description": "本章边界声明:明确写出本章覆盖与不覆盖的内容,防止发散"},
     "prerequisites_zh": {"type": "array", "items": {"type": "string"}, "default": []},
@@ -23,7 +23,9 @@
       "items": {"$ref": "#/definitions/section"}
     },
 
-    "key_takeaways_zh": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 5}},
+    "key_takeaways_zh": {"type": "array", "minItems": 5,
+                         "items": {"type": "string", "minLength": 12},
+                         "description": "每条要点必须含具体信息(机制/条件/数值/顺序),禁止“很重要”“需掌握”这类空话"},
 
     "terms": {
       "type": "array",
@@ -78,8 +80,16 @@
       "additionalProperties": false,
       "required": ["text_zh", "text_en_quote", "page"],
       "properties": {
-        "text_zh": {"type": "string", "minLength": 6,
+        "text_zh": {"type": "string", "minLength": 10,
                     "description": "中文讲解。必须是 text_en_quote 的忠实翻译/解释,不得添加原文没有的信息"},
+        "detail_zh": {
+          "type": "string",
+          "description": "选填但强烈建议:把这条知识点讲透 —— 机制怎么运作、成立的前提、例外情况、与本章其他点的关系。仍然只能用原文已有的信息(可跨页,但要在 also_pages 里登记)"
+        },
+        "also_pages": {
+          "type": "array", "items": {"type": "integer", "minimum": 1}, "default": [],
+          "description": "detail_zh 若用到了本章其他页的信息,把那些页码登记在这里"
+        },
         "text_en_quote": {"type": "string", "minLength": 12,
                           "description": "原文英文原句(逐字复制,可用 ... 省略中间部分)。verify 会做模糊比对"},
         "page": {"type": "integer", "minimum": 1},
@@ -172,14 +182,56 @@
     "feynman": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["explain_back_zh", "questions"],
+      "required": ["explain_back_zh", "must_master", "difficulties", "questions"],
+      "description": "章节级费曼:巩固 + 必须掌握 + 难点 + 自测。**全部严格限定在本章原文之内,不发散。** 面试相关内容(基础题/场景题/连环追问/避坑)不在这里,而在协议级面试复习笔记(interview.json)中。",
       "properties": {
         "explain_back_zh": {
-          "type": "string", "minLength": 80,
-          "description": "费曼第一步:用最朴素的中文把本章讲给外行听(不含术语堆砌),内容仍须来自原文"
+          "type": "string", "minLength": 200,
+          "description": "费曼第一步:用最朴素的中文把本章从头到尾讲给外行听。要有主线(先…然后…如果…就…),覆盖本章全部核心机制,不是目录式罗列。内容仍须来自原文"
+        },
+        "must_master": {
+          "type": "array", "minItems": 3,
+          "description": "必须掌握的关键知识点(巩固用)。挑本章最该记住的,逐条说清为什么必须掌握",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["point_zh", "why_zh", "source_pages", "evidence_quote"],
+            "properties": {
+              "point_zh": {"type": "string", "minLength": 10,
+                           "description": "知识点本身,要具体(含机制/条件/数值/顺序),不能写“理解 OSPF 邻居”这种空话"},
+              "why_zh": {"type": "string", "minLength": 15,
+                         "description": "为什么必须掌握:它是后续哪些内容的前提、不掌握会导致什么理解错误(依据原文)"},
+              "source_pages": {"type": "array", "minItems": 1,
+                               "items": {"type": "integer", "minimum": 1}},
+              "evidence_quote": {"type": "string", "minLength": 12},
+              "memory_hook_zh": {"type": "string",
+                                 "description": "选填:帮助记住的抓手(顺序口诀、数值关系等),只能用原文已有的信息"}
+            }
+          }
+        },
+        "difficulties": {
+          "type": "array", "minItems": 1,
+          "description": "本章难点/大坑:难在哪、为什么难、怎么突破",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name_zh", "why_hard_zh", "how_to_break_zh", "source_pages", "evidence_quote"],
+            "properties": {
+              "name_zh": {"type": "string", "minLength": 4},
+              "why_hard_zh": {"type": "string", "minLength": 20,
+                              "description": "为什么容易卡住:概念相近易混、步骤多易乱序、条件多易漏、反直觉等"},
+              "how_to_break_zh": {"type": "string", "minLength": 20,
+                                  "description": "怎么突破:抓哪个关键区别、按什么顺序理解、对照哪张图/哪段配置"},
+              "source_pages": {"type": "array", "minItems": 1,
+                               "items": {"type": "integer", "minimum": 1}},
+              "evidence_quote": {"type": "string", "minLength": 12},
+              "figure_refs": {"type": "array", "items": {"type": "string"}, "default": []}
+            }
+          }
         },
         "questions": {
           "type": "array", "minItems": 6,
+          "description": "章节自测题(严格原文,不超纲)。面试题在 interview.json 里,不要写在这里",
           "items": {"$ref": "#/definitions/question"}
         },
         "blind_spots_zh": {
@@ -200,10 +252,11 @@
         "type": {"type": "string",
                  "enum": ["concept", "process", "compare", "config", "troubleshoot", "calculation"]},
         "difficulty": {"type": "integer", "minimum": 1, "maximum": 3},
-        "q_zh": {"type": "string", "minLength": 6},
-        "q_en": {"type": "string", "minLength": 6},
-        "answer_zh": {"type": "string", "minLength": 10},
-        "answer_en": {"type": "string", "minLength": 10},
+        "q_zh": {"type": "string", "minLength": 8},
+        "q_en": {"type": "string", "minLength": 8},
+        "answer_zh": {"type": "string", "minLength": 25,
+                      "description": "完整作答,不是一个词。要把机制/条件/顺序说清楚"},
+        "answer_en": {"type": "string", "minLength": 25},
         "source_pages": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}},
         "evidence_quote": {"type": "string", "minLength": 12,
                            "description": "答案所依据的原文英文原句,verify 会比对"},

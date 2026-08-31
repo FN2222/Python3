@@ -231,6 +231,179 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_audit(args) -> int:
+    from nlnotes.audit import audit
+    from nlnotes.scan import select_items
+    cfg = _cfg(args)
+    items = select_items(cfg, args.ids, args.filter_path, args.limit, include_excluded=True)
+    out = audit(cfg, items)
+    print(f"\n报告已写入: {cfg.build_dir / 'audit.md'}")
+    if out["drop"]:
+        print(f"有 {out['drop']} 个 PDF 被剔除,后续阶段会自动跳过。"
+              f"处理办法见报告的「必须剔除」一节。")
+    return 0
+
+
+# ------------------------------------------------------------------ 协议级面试复习
+
+def _pick_groups(cfg, args) -> list[dict]:
+    from nlnotes.groups import discover_groups
+    groups = discover_groups(cfg, args.filter_path)
+    if getattr(args, "group", None):
+        wanted = [g.lower() for g in args.group]
+        picked = [g for g in groups.values()
+                  if g["key"].lower() in wanted or g["id"].lower() in wanted
+                  or any(w in g["key"].lower() for w in wanted)]
+        if not picked:
+            raise KeyError(f"找不到分组: {args.group};可用分组: {sorted(groups)}")
+        return picked
+    return [groups[k] for k in sorted(groups)]
+
+
+def cmd_groups(args) -> int:
+    from nlnotes.groups import build_group_task, chapter_notes
+    cfg = _cfg(args)
+    picked = _pick_groups(cfg, args)
+    if args.list:
+        print(f"共 {len(picked)} 个分组(按最后一层目录聚合):\n")
+        for g in picked:
+            done = len(chapter_notes(cfg, g))
+            print(f"- {g['key']}  (id: {g['id']})")
+            print(f"    章节: {len(g['items'])} 个,已完成笔记: {done} 个"
+                  f"{'  ✅ 可生成面试复习' if done else '  ⚠️ 先完成章节笔记'}")
+        return 0
+    made = 0
+    for g in picked:
+        try:
+            build_group_task(cfg, g, force=args.force)
+            made += 1
+        except FileNotFoundError as exc:
+            log(str(exc), "warn")
+    print(f"\n已生成 {made} 个面试复习任务包(共 {len(picked)} 个分组)")
+    return 0
+
+
+def cmd_build_group(args) -> int:
+    from nlnotes.assemble import assemble_group, build_index
+    from nlnotes.groups import verify_interview
+    from nlnotes.verify import format_report
+    cfg = _cfg(args)
+    picked = _pick_groups(cfg, args)
+    failed = []
+    for g in picked:
+        rep = verify_interview(cfg, g)
+        if not rep.passed:
+            print(format_report(rep))
+            failed.append(g["key"])
+            if not args.force:
+                log(f"{g['key']} 未通过校验,跳过生成(如需强制生成加 --force)", "warn")
+                continue
+        try:
+            assemble_group(cfg, g, verified=rep.passed, stats=rep.stats)
+        except Exception as exc:
+            log(f"组装失败 {g['key']}: {exc}", "error")
+            failed.append(g["key"])
+    build_index(cfg)
+    return 1 if failed else 0
+
+
+# ------------------------------------------------------------------ AI 自动撰写
+
+def cmd_write(args) -> int:
+    import time as _time
+    from nlnotes.scan import select_items
+    from nlnotes.writer import append_log, summarize, write_chapter
+    cfg = _cfg(args)
+    items = select_items(cfg, args.ids, args.filter_path, args.limit)
+    if not items:
+        print("没有待处理的章节。")
+        return 0
+    print(f"模型: {cfg['writer_model']}  @ {cfg['writer_base_url']}")
+    print(f"待处理 {len(items)} 章{'(仅预估,不发请求)' if args.dry_run else ''}\n")
+
+    stats = []
+    for i, it in enumerate(items, start=1):
+        log(f"[{i}/{len(items)}] {it['rel_path']}")
+        try:
+            st = write_chapter(cfg, it, dry_run=args.dry_run, force=args.force)
+        except Exception as exc:
+            log(f"失败 {it['rel_path']}: {exc}", "error")
+            st = {"id": it["id"], "rel_path": it["rel_path"], "rounds": 0,
+                  "prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0,
+                  "passed": False, "kind": "chapter", "error": str(exc)}
+        stats.append(st)
+        if not args.dry_run:
+            append_log(cfg, st)
+            if i < len(items):
+                _time.sleep(float(cfg["writer_sleep_between"]))
+    print(summarize(stats, dry_run=args.dry_run))
+    if args.dry_run:
+        return 0
+    return 0 if all(s.get("passed") for s in stats) else 1
+
+
+def cmd_write_group(args) -> int:
+    from nlnotes.writer import append_log, summarize, write_group
+    cfg = _cfg(args)
+    picked = _pick_groups(cfg, args)
+    print(f"模型: {cfg['writer_model']}  @ {cfg['writer_base_url']}")
+    print(f"待处理 {len(picked)} 个分组{'(仅预估)' if args.dry_run else ''}\n")
+    stats = []
+    for i, g in enumerate(picked, start=1):
+        log(f"[{i}/{len(picked)}] {g['key']}")
+        try:
+            st = write_group(cfg, g, dry_run=args.dry_run, force=args.force)
+        except Exception as exc:
+            log(f"失败 {g['key']}: {exc}", "error")
+            st = {"id": g["id"], "rel_path": g["key"], "rounds": 0,
+                  "prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0,
+                  "passed": False, "kind": "group", "error": str(exc)}
+        stats.append(st)
+        if not args.dry_run:
+            append_log(cfg, st)
+    print(summarize(stats, dry_run=args.dry_run))
+    if args.dry_run:
+        return 0
+    return 0 if all(s.get("passed") for s in stats) else 1
+
+
+def cmd_cost(args) -> int:
+    """汇总 build/write-log.jsonl 的实际用量与费用。"""
+    import json as _json
+    cfg = _cfg(args)
+    p = cfg.build_dir / "write-log.jsonl"
+    if not p.exists():
+        print(f"还没有用量记录({p} 不存在)。跑过 nlnotes write 之后才会有。")
+        return 0
+    rows = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            try:
+                rows.append(_json.loads(line))
+            except Exception:
+                pass
+    if not rows:
+        print("用量记录为空。")
+        return 0
+    tin = sum(r.get("prompt_tokens", 0) for r in rows)
+    tout = sum(r.get("completion_tokens", 0) for r in rows)
+    cost = sum(r.get("cost_usd", 0.0) for r in rows)
+    ok = sum(1 for r in rows if r.get("passed"))
+    by_model: dict[str, float] = {}
+    for r in rows:
+        by_model[r.get("model", "?")] = by_model.get(r.get("model", "?"), 0.0) + r.get("cost_usd", 0.0)
+    print(f"记录条数: {len(rows)}(通过 {ok})")
+    print(f"token   : 输入 {tin:,} + 输出 {tout:,}")
+    print(f"费用    : 约 ${cost:.2f}")
+    print("按模型  :")
+    for m, c in sorted(by_model.items(), key=lambda x: -x[1]):
+        print(f"  {m}: ${c:.2f}")
+    per = [r for r in rows if not r.get("skipped")]
+    if per:
+        print(f"单章平均: ${cost / len(per):.4f}")
+    return 0
+
+
 def cmd_init(args) -> int:
     """把示例配置复制成 config/pipeline.json。"""
     example = DEFAULT_CONFIG_PATH.parent / "pipeline.example.json"
@@ -316,6 +489,46 @@ def build_parser() -> argparse.ArgumentParser:
     _select(sp)
     sp.add_argument("--detail", action="store_true")
     sp.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser("audit", help="PDF 体检:能否搜索、是否扫描件,并剔除不可用文件")
+    _common(sp)
+    _select(sp)
+    sp.set_defaults(func=cmd_audit)
+
+    sp = sub.add_parser("groups", help="按协议分组,生成面试复习任务包")
+    _common(sp)
+    sp.add_argument("--group", nargs="*", help="只处理指定分组(支持关键字,如 OSPF)")
+    sp.add_argument("--path", dest="filter_path", help="按相对路径关键字筛选")
+    sp.add_argument("--list", action="store_true", help="只列出分组与完成情况")
+    sp.add_argument("--force", action="store_true")
+    sp.set_defaults(func=cmd_groups)
+
+    sp = sub.add_parser("build-group", help="校验 + 渲染协议级面试复习笔记")
+    _common(sp)
+    sp.add_argument("--group", nargs="*", help="只处理指定分组")
+    sp.add_argument("--path", dest="filter_path", help="按相对路径关键字筛选")
+    sp.add_argument("--force", action="store_true", help="校验不通过也强行生成")
+    sp.set_defaults(func=cmd_build_group)
+
+    sp = sub.add_parser("write", help="调 LLM 自动撰写章节 note.json(写→校验→修 闭环)")
+    _common(sp)
+    _select(sp)
+    sp.add_argument("--force", action="store_true", help="已通过校验的章节也重新撰写")
+    sp.add_argument("--dry-run", action="store_true", help="只估算 token 与费用,不发请求")
+    sp.set_defaults(func=cmd_write)
+
+    sp = sub.add_parser("write-group", help="调 LLM 自动撰写协议级 interview.json")
+    _common(sp)
+    sp.add_argument("--group", nargs="*")
+    sp.add_argument("--path", dest="filter_path")
+    sp.add_argument("--limit", type=int)
+    sp.add_argument("--force", action="store_true")
+    sp.add_argument("--dry-run", action="store_true")
+    sp.set_defaults(func=cmd_write_group)
+
+    sp = sub.add_parser("cost", help="汇总 AI 撰写的实际 token 用量与费用")
+    _common(sp)
+    sp.set_defaults(func=cmd_cost)
 
     return p
 

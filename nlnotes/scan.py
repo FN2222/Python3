@@ -107,8 +107,9 @@ def load_manifest(cfg: Config) -> dict[str, Any]:
 
 def select_items(cfg: Config, ids: list[str] | None = None,
                  filter_path: str | None = None,
-                 limit: int | None = None) -> list[dict[str, Any]]:
-    """按 id 前缀 / 路径关键字筛选待处理的 PDF。"""
+                 limit: int | None = None,
+                 include_excluded: bool = False) -> list[dict[str, Any]]:
+    """按 id 前缀 / 路径关键字筛选待处理的 PDF,并自动跳过体检剔除的文件。"""
     items = load_manifest(cfg)["items"]
     if ids:
         wanted = set(ids)
@@ -124,6 +125,17 @@ def select_items(cfg: Config, ids: list[str] | None = None,
     if filter_path:
         key = filter_path.replace("\\", "/").lower()
         items = [it for it in items if key in it["rel_path"].lower()]
+
+    if cfg.get("respect_audit_exclusions") and not include_excluded and not ids:
+        from nlnotes.audit import excluded_ids
+        dropped = excluded_ids(cfg)
+        if dropped:
+            before = len(items)
+            items = [it for it in items if it["id"] not in dropped]
+            if before != len(items):
+                log(f"已跳过体检剔除的 {before - len(items)} 个 PDF"
+                    f"(详见 build/audit.md;要强制处理请显式传 --id)")
+
     if limit:
         items = items[:limit]
     return items
