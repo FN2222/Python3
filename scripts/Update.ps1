@@ -20,11 +20,16 @@
 .EXAMPLE
     # 更新后顺手补齐配置项并重跑抽取
     .\scripts\Update.ps1 -UpgradeConfig -ReExtract
+
+.EXAMPLE
+    # 公司网络拦 TLS、自动下载失败时:浏览器下好 ZIP,直接交给脚本处理
+    .\scripts\Update.ps1 -ZipPath "$env:USERPROFILE\Downloads\Python3-cursor-xxx.zip" -UpgradeConfig
 #>
 [CmdletBinding()]
 param(
     [string]$Branch = "cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b",
     [string]$Repo = "FN2222/Python3",
+    [string]$ZipPath,
     [switch]$UpgradeConfig,
     [switch]$ReExtract,
     [switch]$KeepDownload
@@ -41,27 +46,67 @@ $zipUrl = "https://github.com/$Repo/archive/refs/heads/$Branch.zip"
 $tmp = Join-Path $env:TEMP ("nlnotes-update-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 $zipPath = Join-Path $tmp "source.zip"
 
-Write-Host "==> 下载代码" -ForegroundColor Cyan
-Write-Host "    $zipUrl" -ForegroundColor DarkGray
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 
-try {
+if ($ZipPath) {
+    # 手动下载好的 ZIP:跳过下载,直接用它(公司网络拦 TLS 时最省事的路子)
+    if (-not (Test-Path $ZipPath)) {
+        Write-Error "找不到指定的 ZIP: $ZipPath"
+        exit 1
+    }
+    Write-Host "==> 使用本地 ZIP" -ForegroundColor Cyan
+    Write-Host "    $ZipPath" -ForegroundColor DarkGray
+    Copy-Item -Path $ZipPath -Destination $zipPath -Force
+} else {
+    Write-Host "==> 下载代码" -ForegroundColor Cyan
+    Write-Host "    $zipUrl" -ForegroundColor DarkGray
     $ProgressPreference = "SilentlyContinue"      # 不显示进度条,快很多
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
-} catch {
-    Write-Host ""
-    Write-Warning "下载失败:$($_.Exception.Message)"
-    Write-Host ""
-    Write-Host "请改用浏览器手动下载,然后解压覆盖到 $repoRoot :" -ForegroundColor Yellow
-    Write-Host "  $zipUrl" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "注意:要把解压出来那个长名字文件夹【里面的内容】覆盖进 $repoRoot," -ForegroundColor Yellow
-    Write-Host "      而不是把整个文件夹丢进去。" -ForegroundColor Yellow
-    exit 1
+
+    # 公司网络常见两类问题,所以按三条路依次尝试:
+    #   1. .NET 默认协议偏旧 -> 显式启用 TLS 1.2/1.3
+    #   2. 中间设备换证书导致吊销检查失败 -> curl.exe --ssl-no-revoke(绕过吊销检查)
+    #   3. 都不行 -> 让用户浏览器下载后用 -ZipPath 传进来
+    $ok = $false
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = 3072 -bor 12288   # Tls12 | Tls13
+    } catch {
+        try { [Net.ServicePointManager]::SecurityProtocol = 3072 } catch { }
+    }
+    try {
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+        $ok = $true
+    } catch {
+        Write-Host "    Invoke-WebRequest 失败:$($_.Exception.Message)" -ForegroundColor DarkYellow
+    }
+
+    if (-not $ok) {
+        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if ($curl) {
+            Write-Host "    改用 curl.exe --ssl-no-revoke 重试" -ForegroundColor DarkYellow
+            & $curl.Source --ssl-no-revoke -sSL -o $zipPath $zipUrl
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $zipPath)) { $ok = $true }
+        }
+    }
+
+    if (-not $ok) {
+        Write-Host ""
+        Write-Warning "自动下载失败(公司网络的 TLS 拦截)。"
+        Write-Host ""
+        Write-Host "改用浏览器下载,然后把 ZIP 直接交给本脚本 —— 不用你手工解压:" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  1) 浏览器打开并下载:" -ForegroundColor Yellow
+        Write-Host "     $zipUrl" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  2) 然后执行(路径换成你实际的下载位置):" -ForegroundColor Yellow
+        Write-Host "     .\scripts\Update.ps1 -ZipPath `"`$env:USERPROFILE\Downloads\Python3-cursor-$($Branch.Split('/')[-1]).zip`" -UpgradeConfig" -ForegroundColor Cyan
+        Write-Host ""
+        Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
 }
 
 $sizeKb = [math]::Round((Get-Item $zipPath).Length / 1KB)
-Write-Host "    下载完成($sizeKb KB)" -ForegroundColor DarkGray
+Write-Host "    就绪($sizeKb KB)" -ForegroundColor DarkGray
 
 Write-Host "==> 解压" -ForegroundColor Cyan
 Expand-Archive -Path $zipPath -DestinationPath $tmp -Force

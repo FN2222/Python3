@@ -160,6 +160,33 @@ Remove-Item $t -Recurse -Force
 补齐配置项。你的 `config\pipeline.json`、`config\selection.txt`、
 `build\`、`notes\`、`.venv\` 都会被跳过。
 
+#### 如果连 `Invoke-WebRequest` 都报 TLS 错误
+
+报 `未能为 SSL/TLS 安全通道建立信任关系` 说明公司网络对 .NET 的下载也做了拦截。
+两条出路:
+
+**出路一:先启用 TLS 1.2,再用 curl 绕过吊销检查**(curl.exe 是 Windows 10+ 自带的):
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = 3072
+curl.exe --ssl-no-revoke -sSL -o "$env:TEMP
+l.zip" `
+  "https://github.com/FN2222/Python3/archive/refs/heads/cursor/networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip"
+```
+
+`--ssl-no-revoke` 关掉的是**证书吊销检查**(和 git 的 `http.schannelCheckRevoke false`
+同一个道理),证书本身仍然照常校验。
+
+**出路二(最省事):浏览器下载 ZIP,然后把它交给脚本 —— 不用你手工解压**
+
+```powershell
+.\scripts\Update.ps1 -ZipPath "$env:USERPROFILE\Downloads\Python3-cursor-networklessons-pdf-to-chinese-notes-pipeline-ec2b.zip" -UpgradeConfig
+```
+
+脚本会自己解压、用 robocopy 合并覆盖、补齐配置项 ——
+省掉了"手工解压 + 改文件夹名 + 拖进去覆盖"这几步最容易出错的操作。
+`Update.ps1` 自动下载失败时也会打印这条命令给你。
+
 下面是分情况的手工做法。先判断你当初是怎么拿到代码的:
 
 ```powershell
