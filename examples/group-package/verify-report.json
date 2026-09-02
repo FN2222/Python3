@@ -1,0 +1,18 @@
+{
+  "pdf_id": "group-igp-ospf",
+  "passed": true,
+  "error_count": 0,
+  "warning_count": 0,
+  "stats": {
+    "grounding_checked": 38,
+    "grounding_matched": 38,
+    "ungrounded_tokens": 0,
+    "must_master": 5,
+    "fundamentals": 6,
+    "scenarios": 3,
+    "followups": 3,
+    "pitfalls": 5
+  },
+  "errors": [],
+  "warnings": []
+}

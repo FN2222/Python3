@@ -1,0 +1,35 @@
+---
+description: nlnotes 项目的核心约束 —— 把 NetworkLessons 英文 PDF 转成中文笔记的流水线,涉及笔记生成、门禁校验、可视化渲染、PDF 抽取时必须遵守
+alwaysApply: true
+---
+
+# nlnotes 核心约束
+
+本仓库是一条把 **NetworkLessons 英文 PDF 课程**转成**中文笔记**的流水线
+(知识点配原文拓扑图 + 抽象处配自制动画 + 章末中英双语费曼测验,严格不发散)。
+完整背景见 @AGENTS.md,方案见 @docs/00-总体方案.md,历史决策见 @docs/06-会话交接.md。
+
+## 五条硬约束
+
+1. **用户的原始 PDF 只读。** 不修改、不移动、不重命名。
+2. **不为了通过校验而下调门禁阈值。** 阈值调低等于放弃"不臆想"的保证。
+   唯一合理放宽:`token_whitelist` 加与课程无关的通用词;协议名/命令/数值一律不许加。
+3. **不手写笔记 Markdown。** AI 只产出符合 @schemas/note.schema.json 的 `note.json`,
+   Markdown 由 `python -m nlnotes build` 渲染。这个边界不要打破。
+4. **写笔记时每条知识点的 `text_en_quote` 必须从原文复制粘贴**,不是凭理解写;
+   描述拓扑图前必须先看图并登记 `figures[].labels_seen`(图上文字不在 PDF 文本层)。
+5. **改完代码跑 `python tests/run_e2e.py`**,它验证 14 个臆想反例都被拦下。
+
+## 两个最容易踩的技术坑
+
+- @templates/note.md.j2 开了 Jinja `trim_blocks`:**内容行不能以 `{% ... %}` 结尾**,
+  否则行尾换行被吃掉,Markdown 表格与列表会粘连。需要循环拼接就用过滤器或在 Python 里拼好。
+- @nlnotes/verify.py 的覆盖率只统计正文小节页(`body_pages`),**不要把测验页算进去** ——
+  否则反超纲检查 `X011` 会失效。
+
+## 写笔记任务的标准流程
+
+读 `build/tasks/<id>/TASK.md` → 读原文与图清单(**逐张看图**)→ 写 `OUTPUT/note.json`
+→ 跑 `python -m nlnotes build --id <id>` → 按 `build/reports/<id>.json` 逐条修(≤5 轮)。
+
+铁律见 @prompts/00-system-中文笔记作者.md,错误码改法见 @prompts/40-修订循环.md。

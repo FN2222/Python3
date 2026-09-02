@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": ".venv/Scripts/python.exe .cursor/hooks/continue-nlnotes.py",
+        "loop_limit": 20
+      }
+    ]
+  }
+}

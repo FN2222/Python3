@@ -1,0 +1,238 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "nlnotes 协议级面试复习笔记 (interview.json)",
+  "description": "按协议/方向汇总(如整个 OSPF、整个 BGP)的面试复习笔记,在该目录下所有章节笔记完成后产出。\n\n与章节笔记的关键区别:**这里允许发散**,但必须把发散内容放进带 `extension` 字样的字段里,\n并且每道题的核心答案仍须有 `grounding`(指向某个章节某一页的英文原文)。\nverify 会对非 extension 字段做原文比对,对 extension 字段只做标注检查。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["group_key", "group_title_zh", "group_title_en", "covered_chapters",
+               "knowledge_map", "must_master", "fundamentals", "scenarios",
+               "followups", "pitfalls"],
+  "properties": {
+    "group_key": {"type": "string", "minLength": 1,
+                  "description": "协议/方向的分组键,来自任务包 context.json,如 IGP/OSPF"},
+    "group_title_zh": {"type": "string", "minLength": 2},
+    "group_title_en": {"type": "string", "minLength": 2},
+
+    "overview_zh": {
+      "type": "string",
+      "description": "选填:这个协议在整套课程里解决什么问题的总览(依据已覆盖章节)"
+    },
+
+    "covered_chapters": {
+      "type": "array", "minItems": 1,
+      "description": "本复习笔记覆盖了哪些章节。必须与任务包 context.json 里列出的章节一致",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pdf_id", "title_zh"],
+        "properties": {
+          "pdf_id": {"type": "string", "minLength": 3},
+          "title_zh": {"type": "string", "minLength": 1},
+          "key_points_zh": {"type": "array", "items": {"type": "string"}, "default": [],
+                            "description": "这一章在本协议知识体系中贡献了什么"}
+        }
+      }
+    },
+
+    "knowledge_map": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mermaid", "reading_order_zh"],
+      "description": "知识体系图:把本协议各章串成一张图,说明学习/复习顺序",
+      "properties": {
+        "mermaid": {"type": "string", "minLength": 20,
+                    "description": "mermaid 源码(flowchart/mindmap),节点只能是已覆盖章节讲过的概念"},
+        "reading_order_zh": {"type": "array", "minItems": 2, "items": {"type": "string"},
+                             "description": "建议的复习顺序及理由"}
+      }
+    },
+
+    "must_master": {
+      "type": "array", "minItems": 5,
+      "description": "跨章节的必须掌握清单 —— 面试前必须能张口就答的",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["point_zh", "why_zh", "grounding"],
+        "properties": {
+          "point_zh": {"type": "string", "minLength": 10},
+          "why_zh": {"type": "string", "minLength": 15},
+          "grounding": {"$ref": "#/definitions/groundingList"}
+        }
+      }
+    },
+
+    "fundamentals": {
+      "type": "array", "minItems": 6,
+      "description": "高频必考基础/原理题,附高分答题模板与得分要点",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "difficulty", "q_zh", "q_en", "answer_template_zh",
+                     "answer_template_en", "scoring_points_zh", "scoring_points_en", "grounding"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^f\\d+$"},
+          "difficulty": {"type": "integer", "minimum": 1, "maximum": 3},
+          "tags_zh": {"type": "array", "items": {"type": "string"}, "default": []},
+          "q_zh": {"type": "string", "minLength": 8},
+          "q_en": {"type": "string", "minLength": 8},
+          "answer_template_zh": {"$ref": "#/definitions/answerTemplate"},
+          "answer_template_en": {"$ref": "#/definitions/answerTemplate"},
+          "scoring_points_zh": {
+            "type": "array", "minItems": 3, "items": {"type": "string", "minLength": 6},
+            "description": "得分要点:面试官按这些点打分,答到几条给几分"
+          },
+          "scoring_points_en": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 6}},
+          "grounding": {"$ref": "#/definitions/groundingList"},
+          "extension_zh": {"type": "string",
+                           "description": "选填。超出课程原文的补充(工程经验、厂商差异、版本演进)。会被明确渲染为“课程外扩展”"},
+          "extension_en": {"type": "string"}
+        }
+      }
+    },
+
+    "scenarios": {
+      "type": "array", "minItems": 3,
+      "description": "场景化面试题(情景模拟):给一个具体现场,让候选人给出分析与方案",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scene_zh", "scene_en", "task_zh", "task_en",
+                     "thinking_framework_zh", "ideal_answer_zh", "ideal_answer_en",
+                     "scoring_points_zh", "scoring_points_en", "grounding"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^s\\d+$"},
+          "difficulty": {"type": "integer", "minimum": 1, "maximum": 3, "default": 2},
+          "scene_zh": {"type": "string", "minLength": 40,
+                       "description": "场景描述:拓扑、现象、已知条件。要具体到能动手分析"},
+          "scene_en": {"type": "string", "minLength": 40},
+          "task_zh": {"type": "string", "minLength": 10, "description": "要求候选人做什么"},
+          "task_en": {"type": "string", "minLength": 10},
+          "thinking_framework_zh": {
+            "type": "array", "minItems": 3, "items": {"type": "string", "minLength": 6},
+            "description": "解题框架:按什么顺序排查/推导(这是场景题真正考的东西)"
+          },
+          "ideal_answer_zh": {"type": "string", "minLength": 80},
+          "ideal_answer_en": {"type": "string", "minLength": 80},
+          "scoring_points_zh": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 6}},
+          "scoring_points_en": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 6}},
+          "grounding": {"$ref": "#/definitions/groundingList"},
+          "extension_zh": {"type": "string"},
+          "extension_en": {"type": "string"}
+        }
+      }
+    },
+
+    "followups": {
+      "type": "array", "minItems": 3,
+      "description": "面试官连环追问:每组一个入口问题 + 三层递进深挖",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "root_q_zh", "root_q_en", "layers"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^u\\d+$"},
+          "topic_zh": {"type": "string"},
+          "root_q_zh": {"type": "string", "minLength": 8},
+          "root_q_en": {"type": "string", "minLength": 8},
+          "layers": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "description": "必须正好三层,层层深入(是什么 → 为什么/怎么做 → 边界与代价)",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["level", "q_zh", "q_en", "answer_zh", "answer_en",
+                           "probe_intent_zh", "grounding"],
+              "properties": {
+                "level": {"type": "integer", "minimum": 1, "maximum": 3},
+                "q_zh": {"type": "string", "minLength": 8},
+                "q_en": {"type": "string", "minLength": 8},
+                "answer_zh": {"type": "string", "minLength": 40},
+                "answer_en": {"type": "string", "minLength": 40},
+                "probe_intent_zh": {"type": "string", "minLength": 10,
+                                    "description": "面试官问这层想验证什么(是背过还是真懂)"},
+                "grounding": {"$ref": "#/definitions/groundingList"},
+                "extension_zh": {"type": "string"},
+                "extension_en": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "pitfalls": {
+      "type": "array", "minItems": 5,
+      "description": "避坑指南:80% 候选人会踩的概念陷阱与错误回答",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "wrong_zh", "wrong_en", "why_wrong_zh", "correct_zh", "correct_en", "grounding"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^p\\d+$"},
+          "trap_type_zh": {"type": "string",
+                           "description": "陷阱类型:概念混淆 / 条件遗漏 / 顺序错乱 / 数值记错 / 过度推广 等"},
+          "wrong_zh": {"type": "string", "minLength": 15, "description": "候选人典型的错误说法(原话式)"},
+          "wrong_en": {"type": "string", "minLength": 15},
+          "why_wrong_zh": {"type": "string", "minLength": 25, "description": "错在哪,依据原文的哪一句"},
+          "correct_zh": {"type": "string", "minLength": 25, "description": "正确说法"},
+          "correct_en": {"type": "string", "minLength": 25},
+          "grounding": {"$ref": "#/definitions/groundingList"},
+          "extension_zh": {"type": "string"}
+        }
+      }
+    },
+
+    "self_check_zh": {
+      "type": "array", "items": {"type": "string"}, "default": [],
+      "description": "选填:面试前 5 分钟自查清单"
+    },
+
+    "meta": {"type": "object", "additionalProperties": true}
+  },
+
+  "definitions": {
+    "groundingList": {
+      "type": "array", "minItems": 1,
+      "description": "原文依据:指向具体章节的具体页与英文原句。verify 会逐条比对该章节抽取出的原文",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pdf_id", "page", "quote"],
+        "properties": {
+          "pdf_id": {"type": "string", "minLength": 3,
+                     "description": "必须是 covered_chapters 里的某个 pdf_id"},
+          "page": {"type": "integer", "minimum": 1},
+          "quote": {"type": "string", "minLength": 12,
+                    "description": "该页的英文原句,逐字复制"}
+        }
+      }
+    },
+
+    "answerTemplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opening", "body", "closing"],
+      "description": "高分答题模板:面试时照这个结构说,层次清楚、不漏要点",
+      "properties": {
+        "opening": {"type": "string", "minLength": 15,
+                    "description": "开场一句话结论(先给答案,再展开)"},
+        "body": {
+          "type": "array", "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "content"],
+            "properties": {
+              "label": {"type": "string", "minLength": 2,
+                        "description": "这一段讲什么,如“机制”“关键参数”“与 X 的区别”"},
+              "content": {"type": "string", "minLength": 25}
+            }
+          }
+        },
+        "closing": {"type": "string", "minLength": 15,
+                    "description": "收尾:回扣问题 / 给出适用边界"}
+      }
+    }
+  }
+}

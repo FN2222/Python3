@@ -1,0 +1,252 @@
+---
+title: "{{ iv.group_title_zh }} · 面试复习"
+title_en: "{{ iv.group_title_en }} · Interview Review"
+group: "{{ iv.group_key }}"
+chapters: {{ meta.chapter_count }}
+fundamentals: {{ meta.fundamentals }}
+scenarios: {{ meta.scenarios }}
+followups: {{ meta.followups }}
+pitfalls: {{ meta.pitfalls }}
+grounding: "{{ meta.grounding_matched }}/{{ meta.grounding_checked }}"
+verified: {{ 'true' if meta.verified else 'false' }}
+generator: "nlnotes {{ meta.version }}"
+generated_at: "{{ meta.generated_at }}"
+---
+
+# {{ iv.group_title_zh }} · 面试复习 / Interview Review
+
+> **覆盖章节**:{{ meta.chapter_count }} 章 · **原文依据校验**:{{ meta.grounding_matched }}/{{ meta.grounding_checked }} 条通过
+> **说明**:题目的核心答案均可追溯到课程原文;标注为 <sub>🔶 课程外扩展</sub> 的段落
+> 属于工程经验补充,**不属于课程内容**,面试时可作为加分项,但请自行判断适用性。
+
+## 覆盖的章节
+
+| 章节 | 在本协议中的作用 |
+| --- | --- |
+{% for c in iv.covered_chapters %}
+| [{{ c.title_zh }}]({{ chapter_links[c.pdf_id] }}) | {{ c.key_points_zh | join('；') }} |
+{% endfor %}
+
+{% if iv.overview_zh %}
+{{ iv.overview_zh }}
+{% endif %}
+
+## 一、知识体系图 / Knowledge Map
+
+```mermaid
+{{ iv.knowledge_map.mermaid }}
+```
+
+**建议复习顺序:**
+
+{% for r in iv.knowledge_map.reading_order_zh %}
+{{ loop.index }}. {{ r }}
+{% endfor %}
+
+## 二、必须掌握清单 / Must Master
+
+> 面试前必须能张口就答。答不上来的,回到对应章节重看。
+
+{% for m in iv.must_master %}
+
+### {{ loop.index }}. {{ m.point_zh }}
+
+- **为什么必须掌握**:{{ m.why_zh }}
+- **原文依据**:{{ m.grounding | grounding_fmt }}
+{% endfor %}
+
+## 三、高频必考基础 / 原理题 / Fundamentals
+
+{% for f in iv.fundamentals %}
+
+### {{ f.id | upper }}〔难度 {{ '★' * f.difficulty }}{% if f.tags_zh %} · {{ f.tags_zh | join(' / ') }}{% endif %}〕
+
+**问 / Q**
+
+- 🇨🇳 {{ f.q_zh }}
+- 🇬🇧 {{ f.q_en }}
+
+<details><summary>高分答题模板 · 得分要点(建议先自己答)</summary>
+
+#### 🇨🇳 中文答题模板
+
+> **开场结论**:{{ f.answer_template_zh.opening }}
+
+{% for b in f.answer_template_zh.body %}
+**{{ b.label }}** — {{ b.content }}
+
+{% endfor %}
+> **收尾**:{{ f.answer_template_zh.closing }}
+
+#### 🇬🇧 English answer template
+
+> **Opening**: {{ f.answer_template_en.opening }}
+
+{% for b in f.answer_template_en.body %}
+**{{ b.label }}** — {{ b.content }}
+
+{% endfor %}
+> **Closing**: {{ f.answer_template_en.closing }}
+
+#### 得分要点 / Scoring points
+
+| 🇨🇳 | 🇬🇧 |
+| --- | --- |
+{% for row in f.scoring_rows %}
+| {{ row.0 }} | {{ row.1 }} |
+{% endfor %}
+
+<sub>原文依据:{{ f.grounding | grounding_fmt }}</sub>
+{% if f.extension_zh %}
+
+> 🔶 **课程外扩展(非 PDF 内容,酌情使用)**
+>
+> 🇨🇳 {{ f.extension_zh }}
+{% if f.extension_en %}
+>
+> 🇬🇧 {{ f.extension_en }}
+{% endif %}
+{% endif %}
+
+</details>
+{% endfor %}
+
+## 四、场景化面试题 / Scenario Questions
+
+> 场景题考的不是背诵,而是**排查与推导的顺序**。先看场景自己走一遍流程,再看解题框架。
+
+{% for s in iv.scenarios %}
+
+### {{ s.id | upper }}〔难度 {{ '★' * s.difficulty }}〕
+
+**场景 / Scenario**
+
+- 🇨🇳 {{ s.scene_zh }}
+- 🇬🇧 {{ s.scene_en }}
+
+**要求 / Task**
+
+- 🇨🇳 {{ s.task_zh }}
+- 🇬🇧 {{ s.task_en }}
+
+<details><summary>解题框架 · 参考答案 · 得分要点</summary>
+
+#### 解题框架(按顺序走)
+
+{% for t in s.thinking_framework_zh %}
+{{ loop.index }}. {{ t }}
+{% endfor %}
+
+#### 参考答案
+
+- 🇨🇳 {{ s.ideal_answer_zh }}
+- 🇬🇧 {{ s.ideal_answer_en }}
+
+#### 得分要点 / Scoring points
+
+| 🇨🇳 | 🇬🇧 |
+| --- | --- |
+{% for row in s.scoring_rows %}
+| {{ row.0 }} | {{ row.1 }} |
+{% endfor %}
+
+<sub>原文依据:{{ s.grounding | grounding_fmt }}</sub>
+{% if s.extension_zh %}
+
+> 🔶 **课程外扩展(非 PDF 内容,酌情使用)**
+>
+> 🇨🇳 {{ s.extension_zh }}
+{% if s.extension_en %}
+>
+> 🇬🇧 {{ s.extension_en }}
+{% endif %}
+{% endif %}
+
+</details>
+{% endfor %}
+
+## 五、面试官连环追问 / Follow-up Questions
+
+> 真实面试不会只问一层。下面每组都是三层递进:**是什么 → 为什么/怎么做 → 边界与代价**。
+> 建议找人扮演面试官,按顺序逐层追问。
+
+{% for u in iv.followups %}
+
+### {{ u.id | upper }}{% if u.topic_zh %} · {{ u.topic_zh }}{% endif %}
+
+**入口问题 / Opening question**
+
+- 🇨🇳 {{ u.root_q_zh }}
+- 🇬🇧 {{ u.root_q_en }}
+
+{% for l in u.layers %}
+
+<details><summary>第 {{ l.level }} 层追问{{ layer_label[l.level] }}</summary>
+
+**追问 / Probe**
+
+- 🇨🇳 {{ l.q_zh }}
+- 🇬🇧 {{ l.q_en }}
+
+**面试官想验证**:{{ l.probe_intent_zh }}
+
+**参考答案 / Answer**
+
+- 🇨🇳 {{ l.answer_zh }}
+- 🇬🇧 {{ l.answer_en }}
+
+<sub>原文依据:{{ l.grounding | grounding_fmt }}</sub>
+{% if l.extension_zh %}
+
+> 🔶 **课程外扩展(非 PDF 内容)**:{{ l.extension_zh }}
+{% endif %}
+
+</details>
+{% endfor %}
+{% endfor %}
+
+## 六、避坑指南 / Common Pitfalls
+
+> 这些是 80% 候选人会踩的坑。**先看"错误说法",确认自己是不是也这么想的。**
+
+{% for p in iv.pitfalls %}
+
+### {{ p.id | upper }}{% if p.trap_type_zh %}〔{{ p.trap_type_zh }}〕{% endif %}
+
+❌ **很多人会这样说 / Common wrong answer**
+
+- 🇨🇳 {{ p.wrong_zh }}
+- 🇬🇧 {{ p.wrong_en }}
+
+**错在哪**:{{ p.why_wrong_zh }}
+
+✅ **正确说法 / Correct answer**
+
+- 🇨🇳 {{ p.correct_zh }}
+- 🇬🇧 {{ p.correct_en }}
+
+<sub>原文依据:{{ p.grounding | grounding_fmt }}</sub>
+{% if p.extension_zh %}
+
+> 🔶 **课程外扩展(非 PDF 内容)**:{{ p.extension_zh }}
+{% endif %}
+{% endfor %}
+
+{% if iv.self_check_zh %}
+## 七、面试前 5 分钟自查 / Pre-interview Checklist
+
+{% for c in iv.self_check_zh %}
+- [ ] {{ c }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 附录:可信度说明
+
+- 本复习笔记由 `nlnotes` 从本协议 {{ meta.chapter_count }} 章的章节笔记汇总生成。
+- 所有题目的核心答案都带 `grounding` 原文依据,并已逐条与 PDF 原文比对
+  ({{ meta.grounding_matched }}/{{ meta.grounding_checked }} 条通过)。
+- 标注 <sub>🔶 课程外扩展</sub> 的内容不在课程 PDF 中,是面向面试的工程经验补充,
+  **请自行判断适用性**,不要当成课程结论。
+- 校验报告:`build/reports/group-{{ meta.group_id }}.json`

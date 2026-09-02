@@ -1,0 +1,288 @@
+---
+title: "{{ note.title_zh }}"
+title_en: "{{ note.title_en }}"
+source_pdf: "{{ note.source_rel_path }}"
+pdf_id: "{{ note.pdf_id }}"
+pages: {{ meta.pages_total }}
+figures_available: {{ meta.figures_available }}
+figures_used: {{ meta.figures_used }}
+visuals: {{ meta.visuals }}
+coverage: "{{ meta.coverage }}"
+verified: {{ 'true' if meta.verified else 'false' }}
+generator: "nlnotes {{ meta.version }}"
+generated_at: "{{ meta.generated_at }}"
+---
+
+# {{ note.title_zh }}
+
+> **英文原名**:{{ note.title_en }}
+> **源文件**:`{{ note.source_rel_path }}`(原始 PDF 只读,未做任何改动)
+> **规模**:{{ meta.pages_total }} 页原文 · 引用原文配图 {{ meta.figures_used }}/{{ meta.figures_available }} 张 · 自制图 {{ meta.visuals }} 个 · 内容覆盖率 {{ meta.coverage }}
+> **本章边界**:{{ note.scope_zh }}
+
+## 一、本章概要
+
+{{ note.summary_zh }}
+{% if note.prerequisites_zh %}
+
+**建议先掌握:**
+{% for p in note.prerequisites_zh %}
+- {{ p }}
+{% endfor %}
+{% endif %}
+{% if note.terms %}
+
+## 二、术语速查
+
+{{ term_header }}
+{{ term_divider }}
+{% for row in term_rows %}
+{{ row }}
+{% endfor %}
+{% endif %}
+
+## 三、正文精讲
+{% for sec in note.sections %}
+
+### {{ loop.index }}. {{ sec.heading_zh }}
+
+<sub>原文小节:*{{ sec.heading_en }}* · 对应页码:{{ sec.pages | pages_fmt }}</sub>
+{% if sec.intro_zh %}
+
+{{ sec.intro_zh }}
+{% endif %}
+
+{% for pt in sec.points %}
+- **{{ pt.text_zh }}** <sub>(p.{{ pt.page }})</sub>
+  > 原文:{{ pt.text_en_quote }}
+{% if pt.detail_zh %}
+
+  {{ pt.detail_zh }}{% if pt.also_pages %} <sub>(另见 {{ pt.also_pages | pages_fmt }})</sub>{% endif %}
+
+{% endif %}
+{% endfor %}
+{% for fig in sec.figures %}
+{% set art = figure_assets[fig.figure_id] %}
+
+#### 图 · {{ fig.caption_zh }}
+
+![{{ fig.caption_zh }}]({{ art.path }})
+
+<sub>来自原文第 {{ art.page }} 页(`{{ fig.figure_id }}`)</sub>
+
+{{ fig.explain_zh }}
+{% if fig.callouts_zh %}
+
+{% for c in fig.callouts_zh %}
+- 👉 {{ c }}
+{% endfor %}
+{% endif %}
+{% if fig.labels_seen %}
+
+<sub>图中可见标签:{{ fig.labels_seen | codes }}</sub>
+{% endif %}
+{% endfor %}
+{% for v in sec.visuals %}
+{% set r = visual_assets[v.id] %}
+
+#### 自制图解 · {{ v.title_zh }}
+
+<sub>为什么需要这张图:{{ v.why_zh }} · 依据原文 {{ v.source_pages | pages_fmt }}</sub>
+{% if r.animation %}
+
+**动画演示(GIF,循环播放):**
+
+![{{ v.title_zh }} 动画]({{ r.animation }})
+{% endif %}
+{% if r.still %}
+{% if r.animation %}
+
+**分步静态图(打印 / 离线阅读用):**
+{% endif %}
+
+![{{ v.title_zh }}]({{ r.still }})
+{% endif %}
+{% if r.video %}
+
+<video src="{{ r.video }}" controls width="720"></video>
+{% endif %}
+{% if r.inline %}
+
+```{{ r.lang }}
+{{ r.inline }}
+```
+{% endif %}
+{% if r.table_md %}
+
+{{ r.table_md }}
+{% endif %}
+{% if r.unavailable %}
+
+> ⚠️ 本图未能渲染:{{ r.unavailable }}
+{% endif %}
+{% if v.caption_zh %}
+
+{{ v.caption_zh }}
+{% endif %}
+
+<details><summary>本图的原文依据</summary>
+
+{% for g in v.grounding %}
+> {{ g }}
+{% endfor %}
+
+</details>
+{% endfor %}
+{% for cb in sec.configs %}
+
+#### 配置 / 命令(原文 p.{{ cb.page }},逐字引用)
+
+```{{ cb.lang }}
+{{ cb.code }}
+```
+
+{{ cb.explain_zh }}
+{% if cb.annotations_zh %}
+
+| 原文行 | 说明 |
+| --- | --- |
+{% for an in cb.annotations_zh %}
+| `{{ an.line }}` | {{ an.note_zh }} |
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% for tb in sec.tables %}
+
+#### 表 · {{ tb.title_zh }} <sub>(p.{{ tb.page }})</sub>
+
+| {{ tb.headers | join(' | ') }} |
+{{ '| ' ~ (['---'] * (tb.headers | length)) | join(' | ') ~ ' |' }}
+{% for row in tb.rows %}
+| {{ row | join(' | ') }} |
+{% endfor %}
+{% endfor %}
+{% endfor %}
+
+## 四、关键要点回顾
+
+{% for k in note.key_takeaways_zh %}
+{{ loop.index }}. {{ k }}
+{% endfor %}
+
+---
+
+## 五、费曼学习法检验 / Feynman Review
+
+> 费曼学习法的内核:**讲出来 → 找卡壳 → 回原文 → 再讲一遍**。
+> 下面六步就是照这个内核展开的,全部来自本章原文,不超纲、不发散。
+> **面试相关内容**(高频原理题、场景题、连环追问、避坑指南)在本协议的
+> 面试复习笔记里,不在单章笔记中 —— 那里素材跨章,追问才有深度。
+
+### 第 1 步:用大白话复述 / Explain it back
+
+{{ note.feynman.explain_back_zh }}
+
+**做法:** 合上笔记,照着上面这段话的思路用自己的话讲一遍。讲不下去的地方,就是你的盲点。
+
+### 第 2 步:必须掌握的关键知识点 / Must Master
+
+> 本章最该记住的内容。逐条自问:能不能不看笔记讲清楚?
+
+{% for m in note.feynman.must_master %}
+**{{ loop.index }}. {{ m.point_zh }}** <sub>({{ m.source_pages | pages_fmt }})</sub>
+
+- **为什么必须掌握**:{{ m.why_zh }}
+{% if m.memory_hook_zh %}
+- **记忆抓手**:{{ m.memory_hook_zh }}
+{% endif %}
+- <sub>原文依据:{{ m.evidence_quote }}</sub>
+
+{% endfor %}
+
+### 第 3 步:本章难点 / Difficulties
+
+> 难点不是"内容多",而是"容易理解错"。下面每条都说清了难在哪、怎么突破。
+
+{% for d in note.feynman.difficulties %}
+#### 难点 {{ loop.index }}:{{ d.name_zh }} <sub>({{ d.source_pages | pages_fmt }})</sub>
+
+- **为什么容易卡住**:{{ d.why_hard_zh }}
+- **怎么突破**:{{ d.how_to_break_zh }}
+{% if d.figure_refs %}
+- **对照图**:{{ d.figure_refs | codes }}
+{% endif %}
+- <sub>原文依据:{{ d.evidence_quote }}</sub>
+
+{% endfor %}
+
+### 第 4 步:自测题 / Self-test Questions
+{% for q in note.feynman.questions %}
+
+**{{ q.id | upper }}.**〔{{ type_label[q.type] }} · 难度 {{ '★' * q.difficulty }}〕
+
+- 🇨🇳 {{ q.q_zh }}
+- 🇬🇧 {{ q.q_en }}
+{% if q.figure_refs %}
+- 参考图:{{ q.figure_refs | codes }}
+{% endif %}
+{% endfor %}
+
+### 第 5 步:常见盲点 / Common blind spots
+
+{% if note.feynman.blind_spots_zh %}
+{% for b in note.feynman.blind_spots_zh %}
+- {{ b }}
+{% endfor %}
+{% else %}
+(本章未标注盲点)
+{% endif %}
+{% if note.feynman.review_plan_zh %}
+
+### 第 6 步:复习计划 / Review plan
+
+{% for r in note.feynman.review_plan_zh %}
+- {{ r }}
+{% endfor %}
+{% endif %}
+
+### 参考答案 / Answers
+
+<details><summary>点击展开答案(建议先自己作答)</summary>
+{% for q in note.feynman.questions %}
+
+#### {{ q.id | upper }} <sub>(原文 {{ q.source_pages | pages_fmt }})</sub>
+
+**问 / Q**
+
+- 🇨🇳 {{ q.q_zh }}
+- 🇬🇧 {{ q.q_en }}
+
+**答 / A**
+
+- 🇨🇳 {{ q.answer_zh }}
+- 🇬🇧 {{ q.answer_en }}
+{% if q.scoring_points_zh %}
+
+**自评要点:**
+
+{% for s in q.scoring_points_zh %}
+- [ ] {{ s }}
+{% endfor %}
+{% endif %}
+
+> 原文依据:{{ q.evidence_quote }}
+{% endfor %}
+
+</details>
+
+---
+
+## 附录:可信度说明
+
+- 本笔记由 `nlnotes` 流水线生成,所有知识点均逐条比对过原文英文语句({{ meta.quotes_matched }}/{{ meta.quotes_checked }} 条引用通过校验)。
+- 原文配图直接从 PDF 中提取,未经改绘;自制图解由本章原文语句驱动生成,依据已折叠在每张图下方。
+{% if meta.has_ai_illustration %}
+- 本章包含 AI 生成的辅助示意图,已在图上打水印标注,**仅用于帮助理解,不属于原文内容**。
+{% endif %}
+- 校验报告:`build/reports/{{ note.pdf_id }}.json`
+- 源 PDF 未被修改:`{{ note.source_rel_path }}`

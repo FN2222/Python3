@@ -1,0 +1,199 @@
+en,zh,category,aliases
+Access Point,接入点,wireless,AP
+Access Port,接入端口,switching,
+Adjacency,邻接关系,routing,
+Administrative Distance,管理距离,routing,AD
+Aggregation,聚合,routing,
+Anycast,任播,ip,
+Area Border Router,区域边界路由器,ospf,ABR
+ARP,地址解析协议,ip,Address Resolution Protocol
+Autonomous System,自治系统,bgp,AS
+Authentication,认证,security,
+Backup Designated Router,备份指定路由器,ospf,BDR
+Bandwidth,带宽,general,
+BGP,边界网关协议,bgp,Border Gateway Protocol
+Bidirectional Forwarding Detection,双向转发检测,routing,BFD
+Blocking State,阻塞状态,switching,
+Bootstrap Router,自举路由器,multicast,BSR
+BPDU,桥协议数据单元,switching,Bridge Protocol Data Unit
+Bridge,网桥,switching,
+Broadcast Domain,广播域,switching,
+Broadcast Storm,广播风暴,switching,
+Bundle,捆绑,switching,
+CAM Table,内容寻址表,switching,
+Capture,抓包,troubleshooting,
+CEF,思科快速转发,routing,Cisco Express Forwarding
+Checksum,校验和,general,
+CIDR,无类域间路由,ip,Classless Inter-Domain Routing
+Collision Domain,冲突域,switching,
+Community,团体属性,bgp,
+Confederation,联盟,bgp,
+Congestion,拥塞,qos,
+Control Plane,控制平面,architecture,
+Convergence,收敛,routing,
+Cost,开销,routing,
+Data Plane,数据平面,architecture,
+Default Gateway,默认网关,ip,
+Default Route,默认路由,routing,
+Designated Router,指定路由器,ospf,DR
+Designated Port,指定端口,switching,
+DHCP,动态主机配置协议,services,Dynamic Host Configuration Protocol
+DHCP Relay,DHCP 中继,services,
+Distance Vector,距离矢量,routing,
+Distribute List,分发列表,routing,
+DMVPN,动态多点 VPN,vpn,Dynamic Multipoint VPN
+DNS,域名系统,services,Domain Name System
+Downstream,下游,general,
+DR Priority,DR 优先级,ospf,
+DTP,动态中继协议,switching,Dynamic Trunking Protocol
+Dual-Homed,双归属,design,
+Duplex,双工,switching,
+EIGRP,增强型内部网关路由协议,eigrp,Enhanced Interior Gateway Routing Protocol
+Encapsulation,封装,general,
+Encryption,加密,security,
+Equal-Cost Multi-Path,等价多路径,routing,ECMP
+Ethernet,以太网,switching,
+EtherChannel,以太通道,switching,
+External Route,外部路由,routing,
+Feasible Successor,可行后继,eigrp,FS
+Feasible Distance,可行距离,eigrp,FD
+Filtering,过滤,security,
+Firewall,防火墙,security,
+Flapping,震荡,troubleshooting,
+Flooding,泛洪,routing,
+Forwarding,转发,general,
+Forwarding Table,转发表,routing,
+Fragmentation,分片,ip,
+Frame,帧,switching,
+FHRP,首跳冗余协议,redundancy,First Hop Redundancy Protocol
+Full Duplex,全双工,switching,
+GLBP,网关负载均衡协议,redundancy,Gateway Load Balancing Protocol
+GRE,通用路由封装,vpn,Generic Routing Encapsulation
+Half Duplex,半双工,switching,
+Hello Packet,Hello 报文,routing,
+Hello Timer,Hello 定时器,routing,
+Hold Time,保持时间,routing,
+Hop Count,跳数,routing,
+Host Route,主机路由,routing,
+HSRP,热备份路由器协议,redundancy,Hot Standby Router Protocol
+IGMP,互联网组管理协议,multicast,Internet Group Management Protocol
+IGP,内部网关协议,routing,Interior Gateway Protocol
+Inter-VLAN Routing,VLAN 间路由,switching,
+Interface,接口,general,
+IPsec,IP 安全协议,vpn,
+IS-IS,中间系统到中间系统协议,isis,Intermediate System to Intermediate System
+Jitter,抖动,qos,
+Keepalive,保活,general,
+LACP,链路聚合控制协议,switching,Link Aggregation Control Protocol
+Latency,时延,qos,
+Layer 2,二层,architecture,L2
+Layer 3,三层,architecture,L3
+Leaf,叶节点,design,
+Link-Local Address,链路本地地址,ipv6,
+Link State,链路状态,routing,
+Link State Advertisement,链路状态通告,ospf,LSA
+Link State Database,链路状态数据库,ospf,LSDB
+Load Balancing,负载均衡,routing,
+Longest Prefix Match,最长前缀匹配,routing,
+Loop,环路,general,
+Loop Prevention,防环,routing,
+Loopback Interface,环回接口,general,
+MAC Address,MAC 地址,switching,
+MAC Address Table,MAC 地址表,switching,
+Metric,度量值,routing,
+MPLS,多协议标签交换,mpls,Multiprotocol Label Switching
+MTU,最大传输单元,general,Maximum Transmission Unit
+Multicast,组播,multicast,
+Multicast Group,组播组,multicast,
+Multi-Area,多区域,ospf,
+Native VLAN,本征 VLAN,switching,
+NAT,网络地址转换,nat,Network Address Translation
+Neighbor,邻居,routing,
+Neighbor Discovery,邻居发现,ipv6,ND
+Next Hop,下一跳,routing,
+NSSA,非完全末梢区域,ospf,Not-So-Stubby Area
+OSPF,开放最短路径优先,ospf,Open Shortest Path First
+Overlay,叠加网络,design,
+Packet,报文,general,
+PAgP,端口聚合协议,switching,Port Aggregation Protocol
+Passive Interface,被动接口,routing,
+Path Selection,路径选择,routing,
+Payload,负载,general,
+Peer,对等体,routing,
+PIM,协议无关组播,multicast,Protocol Independent Multicast
+Ping,连通性测试,troubleshooting,
+Poison Reverse,毒性逆转,routing,
+Port Channel,端口通道,switching,
+Port Security,端口安全,security,
+PortFast,端口快速,switching,
+Prefix,前缀,ip,
+Prefix List,前缀列表,routing,
+Private IP Address,私有 IP 地址,ip,
+Process ID,进程号,routing,
+Proxy ARP,代理 ARP,ip,
+QoS,服务质量,qos,Quality of Service
+Query,查询,eigrp,
+Queue,队列,qos,
+RADIUS,远程认证拨号用户服务,security,
+Redistribution,路由重分发,routing,
+Reliable Transport Protocol,可靠传输协议,eigrp,RTP
+Rendezvous Point,汇聚点,multicast,RP
+Reported Distance,报告距离,eigrp,RD
+Reverse Path Forwarding,逆向路径转发,multicast,RPF
+RIP,路由信息协议,rip,Routing Information Protocol
+Root Bridge,根桥,switching,
+Root Port,根端口,switching,
+Route Map,路由映射,routing,
+Route Reflector,路由反射器,bgp,RR
+Router ID,路由器 ID,routing,RID
+Routing Table,路由表,routing,
+RSTP,快速生成树协议,switching,Rapid Spanning Tree Protocol
+Runt,超小帧,switching,
+Session,会话,general,
+Shortest Path First,最短路径优先,ospf,SPF
+Split Horizon,水平分割,routing,
+Spanning Tree Protocol,生成树协议,switching,STP
+Spine,骨干节点,design,
+Static Route,静态路由,routing,
+Stub Area,末梢区域,ospf,
+Stub Network,末梢网络,routing,
+Subnet,子网,ip,
+Subnet Mask,子网掩码,ip,
+Successor,后继,eigrp,
+Summarization,汇总,routing,
+Summary Route,汇总路由,routing,
+Supernet,超网,ip,
+SVI,交换虚拟接口,switching,Switched Virtual Interface
+Switch,交换机,switching,
+Switching Loop,交换环路,switching,
+Syslog,系统日志,management,
+TCAM,三态内容寻址存储器,switching,
+TCP,传输控制协议,transport,Transmission Control Protocol
+TCP Three-Way Handshake,TCP 三次握手,transport,
+Throughput,吞吐量,qos,
+Timer,定时器,general,
+Topology,拓扑,general,
+Topology Table,拓扑表,eigrp,
+ToS,服务类型,qos,Type of Service
+Traceroute,路径追踪,troubleshooting,
+Traffic Engineering,流量工程,mpls,TE
+Trunk,中继链路,switching,
+Trunk Port,中继端口,switching,
+TTL,生存时间,ip,Time To Live
+Tunnel,隧道,vpn,
+UDLD,单向链路检测,switching,Unidirectional Link Detection
+UDP,用户数据报协议,transport,User Datagram Protocol
+Unicast,单播,general,
+Unequal Cost Load Balancing,非等价负载均衡,eigrp,
+Upstream,上游,general,
+VLAN,虚拟局域网,switching,Virtual LAN
+VLAN Tagging,VLAN 打标签,switching,
+VLSM,可变长子网掩码,ip,Variable Length Subnet Mask
+Virtual Link,虚链路,ospf,
+VRF,虚拟路由转发,routing,Virtual Routing and Forwarding
+VRRP,虚拟路由器冗余协议,redundancy,Virtual Router Redundancy Protocol
+VTP,VLAN 中继协议,switching,VLAN Trunking Protocol
+VXLAN,虚拟扩展局域网,overlay,Virtual Extensible LAN
+Wildcard Mask,通配符掩码,routing,
+Wireless LAN Controller,无线局域网控制器,wireless,WLC
+Zone,区域,security,
