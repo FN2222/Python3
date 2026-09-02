@@ -544,6 +544,11 @@ pdf_id: <PDF_ID>
 
 产出在 `notes\<方向>\<协议>\00-面试复习-<协议>.md`。
 
+**写早了、缺了几章?**不要让 Grok 在旧的 `interview.json` 上打补丁。
+先确认 `nlnotes groups --list` 里「已完成笔记」等于「章节」数,然后把
+[`prompts/62-重写面试复习.md`](../prompts/62-重写面试复习.md) 整份发给它:
+它会重建任务包、丢掉旧稿、按全部章节重写。
+
 ### 4.3 收尾
 
 ```powershell
