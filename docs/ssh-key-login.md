@@ -10,6 +10,8 @@
 
 正确写法是 **密钥**。下文统一用「密钥」。
 
+**阅读路径：** 先看 [§1 原理](#1-原理讲解) → 再做 [§3 服务端](#3-linux--unix-服务端配置) → 按你的电脑选 [§4 Windows 11](#4-windows-11-客户端方案) 或 [§5 Linux 客户端](#5-linux-客户端方案) → 最后 [§6 关闭密码](#6-服务端确认密钥可用后再关闭密码)。排错见 [§8](#8-排错)。
+
 ---
 
 ## 0. 先建立正确模型
@@ -325,8 +327,9 @@ sudo sshd -T | grep -Ei 'pubkeyauthentication|authorizedkeysfile|passwordauthent
 ```text
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
-AuthenticationMethods publickey,password
-# 暂时保留密码，等密钥验证成功后再改
+# 先不要写 AuthenticationMethods。
+# 该选项里逗号是「并且」：publickey,password 表示必须同时过密钥和密码。
+# 密钥或密码二选一：保持本项未设置，靠下面两行开关即可。
 PasswordAuthentication yes
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
@@ -337,8 +340,8 @@ StrictModes yes
 说明：
 
 - `PermitRootLogin prohibit-password`：root 只能密钥登录，不能密码。更严则改为 `no`，禁止 root 直接 SSH。
-- `AuthenticationMethods publickey,password` 表示可以密钥或密码（逗号在部分版本表示「或」需核对；更稳妥是先不写这一行，等确认后再改成只允许 `publickey`）。
-- OpenSSH 8+ 用 `KbdInteractiveAuthentication` 替代已废弃的 `ChallengeResponseAuthentication`。
+- **不要**在调试阶段设置 `AuthenticationMethods publickey,password`。在 OpenSSH 里逗号分隔表示这些方法必须 **全部成功**（相当于强制双因子），不是「或」。只允许密钥时，等登录验证通过后再设 `AuthenticationMethods publickey`（见第 6 节）。
+- OpenSSH 8.7+ 用 `KbdInteractiveAuthentication` 替代已废弃的 `ChallengeResponseAuthentication`。
 
 检查语法并重载，**不要断开当前会话**：
 
