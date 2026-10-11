@@ -48,13 +48,13 @@ SSH 保持你现在的端口。两个脚本都不改 SSH。
 
 ## 1. 香港安装落地
 
-系统按 Debian/Ubuntu 处理。上传 `server/install.sh` 后执行：
+系统按 Debian/Ubuntu 处理。在任意一台已经能 SSH 到香港的机器上粘贴这一条。脚本会在香港服务器上下载并安装，不需要本机有仓库目录：
 
 ```bash
-scp server/install.sh root@83.229.121.209:/tmp/install.sh
-ssh root@83.229.121.209
-bash /tmp/install.sh
+ssh root@83.229.121.209 'curl -fsSL https://raw.githubusercontent.com/FN2222/Python3/cursor/hk-landing-ix-entry-7286/server/install.sh -o /tmp/install.sh && bash /tmp/install.sh'
 ```
+
+`scp server/install.sh ...` 只有在你自己电脑上的仓库目录里才有效。在别的服务器上执行会报 `No such file or directory`，因为那边没有这个文件。
 
 脚本会核对公网 IP 是不是 `83.229.121.209`。出网 IP 探测失败、但你确认就是这台机器时：
 
@@ -86,14 +86,11 @@ ss -lntup | grep 24443
 
 ## 2. 腾讯和百度只做转发
 
-同一个 `entry/forward.sh` 上传到两台入口。脚本看到 `10.100.132.202` 就按腾讯处理，看到 `192.168.16.2` 就按百度处理。
+同一个脚本看到 `10.100.132.202` 就按腾讯处理，看到 `192.168.16.2` 就按百度处理。在当前这台机器上各粘贴一条：
 
 ```bash
-scp entry/forward.sh root@150.158.185.159:/tmp/forward.sh
-scp entry/forward.sh root@106.12.30.105:/tmp/forward.sh
-
-ssh root@150.158.185.159 'bash /tmp/forward.sh'
-ssh root@106.12.30.105 'bash /tmp/forward.sh'
+ssh root@150.158.185.159 'curl -fsSL https://raw.githubusercontent.com/FN2222/Python3/cursor/hk-landing-ix-entry-7286/entry/forward.sh -o /tmp/forward.sh && bash /tmp/forward.sh'
+ssh root@106.12.30.105 'curl -fsSL https://raw.githubusercontent.com/FN2222/Python3/cursor/hk-landing-ix-entry-7286/entry/forward.sh -o /tmp/forward.sh && bash /tmp/forward.sh'
 ```
 
 每台入口上的转发是：
