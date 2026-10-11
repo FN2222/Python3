@@ -9,27 +9,89 @@ tcp-concurrent: true
 
 dns:
   enable: true
+  ipv6: false
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
   nameserver:
-    - 1.1.1.1
-    - 8.8.8.8
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  fallback:
+    - https://1.1.1.1/dns-query#入口选择
+    - https://dns.google/dns-query#入口选择
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+  proxy-server-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
 
 proxies:
-  - name: "落地-SS2022"
+  - name: "腾讯-IX-A"
     type: ss
-    server: 150.66.49.113
+    server: 150.158.185.159
     port: 24443
     cipher: 2022-blake3-aes-256-gcm
-    password: "WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0="
+    password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+    udp: true
+  - name: "腾讯-IX-B"
+    type: ss
+    server: 150.158.185.159
+    port: 24444
+    cipher: 2022-blake3-aes-256-gcm
+    password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+    udp: true
+  - name: "百度-IX-A"
+    type: ss
+    server: 106.12.30.105
+    port: 24443
+    cipher: 2022-blake3-aes-256-gcm
+    password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+    udp: true
+  - name: "百度-IX-B"
+    type: ss
+    server: 106.12.30.105
+    port: 24444
+    cipher: 2022-blake3-aes-256-gcm
+    password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+    udp: true
+  - name: "香港直连-仅测试"
+    type: ss
+    server: 83.229.121.209
+    port: 24443
+    cipher: 2022-blake3-aes-256-gcm
+    password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
     udp: true
 
 proxy-groups:
-  - name: "PROXY"
+  - name: "入口选择"
     type: select
     proxies:
-      - "落地-SS2022"
+      - "自动选择"
+      - "腾讯-IX-A"
+      - "腾讯-IX-B"
+      - "百度-IX-A"
+      - "百度-IX-B"
+      - "香港直连-仅测试"
+  - name: "自动选择"
+    type: url-test
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 50
+    lazy: true
+    proxies:
+      - "腾讯-IX-A"
+      - "腾讯-IX-B"
+      - "百度-IX-A"
+      - "百度-IX-B"
 
 rules:
-  - GEOIP,private,DIRECT,no-resolve
-  - MATCH,PROXY
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,224.0.0.0/4,DIRECT,no-resolve
+  - MATCH,入口选择

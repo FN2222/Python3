@@ -13,12 +13,56 @@
   ],
   "outbounds": [
     {
-      "type": "shadowsocks",
+      "type": "selector",
       "tag": "proxy",
-      "server": "150.66.49.113",
+      "outbounds": [
+        "tencent-ix-a",
+        "tencent-ix-b",
+        "baidu-ix-a",
+        "baidu-ix-b",
+        "hk-direct-test"
+      ],
+      "default": "tencent-ix-a"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "tencent-ix-a",
+      "server": "150.158.185.159",
       "server_port": 24443,
       "method": "2022-blake3-aes-256-gcm",
-      "password": "WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0="
+      "password": "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "tencent-ix-b",
+      "server": "150.158.185.159",
+      "server_port": 24444,
+      "method": "2022-blake3-aes-256-gcm",
+      "password": "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "baidu-ix-a",
+      "server": "106.12.30.105",
+      "server_port": 24443,
+      "method": "2022-blake3-aes-256-gcm",
+      "password": "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "baidu-ix-b",
+      "server": "106.12.30.105",
+      "server_port": 24444,
+      "method": "2022-blake3-aes-256-gcm",
+      "password": "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "hk-direct-test",
+      "server": "83.229.121.209",
+      "server_port": 24443,
+      "method": "2022-blake3-aes-256-gcm",
+      "password": "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
     },
     {
       "type": "direct",
