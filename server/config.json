@@ -10,7 +10,7 @@
       "listen": "::",
       "listen_port": 24443,
       "method": "2022-blake3-aes-256-gcm",
-      "password": "WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0="
+      "password": "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
     }
   ],
   "outbounds": [

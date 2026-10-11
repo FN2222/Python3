@@ -1,208 +1,242 @@
-# Ubuntu 26.04 LTS 落地节点
+# 香港落地 + 百度/腾讯入口转发
 
-登录 `150.66.49.113` 之后，整行复制这一条命令。它会装好 sing-box、打开 BBR、把 SSH 改到 22022，并在最后打印 SS 链接和 Clash Verge 节点。
+客户端连百度或腾讯的公网端口。这两台机器只做 TCP/UDP 转发，把流量送到 IX。IX 再送到香港。香港上的 sing-box 用 Shadowsocks 2022 解密，然后直接上网。
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/FN2222/Python3/main/server/install.sh -o /tmp/install.sh && sudo bash /tmp/install.sh
+```text
+客户端（SS2022 密文）
+  ├─ 腾讯 150.158.185.159:24443 ─► IX 传输 A 161.248.136.186:24443 ─┐
+  ├─ 腾讯 150.158.185.159:24444 ─► IX 传输 B 138.252.162.176:24443 ─┤
+  ├─ 百度 106.12.30.105:24443   ─► IX 传输 A 161.248.136.186:24443 ─┼─► 香港 83.229.121.209:24443
+  └─ 百度 106.12.30.105:24444   ─► IX 传输 B 138.252.162.176:24443 ─┘   sing-box 解密后直接出网
 ```
 
-这台机器的参数已经全部写好，不需要再改端口、密码或 IP。系统按 Ubuntu 26.04 LTS（也就是 26.0 LTS）处理；同一脚本在 Ubuntu 22.04 / 24.04 上也能用。
+IX 面板不用改。源端口保持 `83.229.121.209:24443`，协议保持 TCP+UDP。两条加速地址保持：
 
-这份目录里的分享链接和密码是这台服务器的真实密钥。不要把仓库公开。
+| 线路 | 加速地址 | 转到 |
+| --- | --- | --- |
+| CNIX-1 传输 A | `161.248.136.186:24443` | `83.229.121.209:24443` |
+| CNIX-1 传输 B | `138.252.162.176:24443` | `83.229.121.209:24443` |
 
-## 已经固定的参数
+入口上的 `24444` 也是转到 IX 的 `24443`。IX 只监听 24443。
 
-| 项目 | 值 |
+这份仓库里有这台落地的真实密码。不要把仓库公开。
+
+这两个脚本只处理上面这三台机器。
+
+## 先放行云防火墙
+
+脚本改不了云控制台。三台都要在安全组里放行，再运行脚本。腾讯如果还有轻量防火墙，两处都放行。
+
+| 机器 | 入站 | 来源 |
+| --- | --- | --- |
+| 香港 `83.229.121.209` | TCP `24443`、UDP `24443` | `0.0.0.0/0` |
+| 腾讯 `150.158.185.159` | TCP/UDP `24443` 和 `24444` | `0.0.0.0/0`，或只填你家公网 IP |
+| 百度 `106.12.30.105` | TCP/UDP `24443` 和 `24444` | 同上 |
+
+香港这边的来源不要写成百度或腾讯的公网 IP。IX 回源时用的是 IX 自己的地址。SS2022 会校验密码，所以落地端口可以对公网开放。
+
+SSH 保持你现在的端口。两个脚本都不改 SSH。
+
+已经在用的转发不会被删：
+
+| 机器 | 保留 |
 | --- | --- |
-| 服务器 IP | `150.66.49.113` |
-| SSH | `22022/tcp` |
-| 业务端口 | `24443/tcp` 和 `24443/udp` |
-| 程序 | sing-box |
-| 协议 | Shadowsocks 2022 |
-| 加密 | `2022-blake3-aes-256-gcm` |
-| 密码 | `WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0=` |
-| 出站 | 本机直接上网（落地，不再转发到下一台） |
+| 腾讯 `10.100.132.202` | `20001` → `177.0.130.85:20001`，`30001` → `103.169.216.124:30001` |
+| 百度 `192.168.16.2` | `32001` → `124.14.19.231:31001` |
 
-密码是 32 字节密钥的 Base64，对应 `2022-blake3-aes-256-gcm`。TCP 和 UDP 都由 sing-box 在 `24443` 上直接监听，Clash 里打开 `udp: true` 即可走原生 UDP，不需要额外插件。
+新规则写在单独的 `table ip ix_entry` 里。不要在这三台机器上执行 `nft flush ruleset`。
 
-## 分享链接
+## 1. 香港安装落地
 
-给 v2rayN、Shadowrocket、sing-box 图形客户端，或任何支持 SIP002 的软件。复制下面这一整行：
-
-```text
-ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206V2FMYjhOV2lXOTBiNm01TXRtSjBHaWFWT0RVa1Bjc3owSkFmMllwaHZWMD0@150.66.49.113:24443#Landing-SS2022
-```
-
-同一行也保存在 `client/ss-uri.txt`。
-
-## Clash Verge 节点
-
-Clash Verge / Clash Verge Rev 使用 Mihomo 内核，可以直接导入 `client/clash-verge.yaml`。节点内容是：
-
-```yaml
-- name: "落地-SS2022"
-  type: ss
-  server: 150.66.49.113
-  port: 24443
-  cipher: 2022-blake3-aes-256-gcm
-  password: "WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0="
-  udp: true
-```
-
-导入步骤：
-
-1. 打开 Clash Verge Rev。
-2. 进入「订阅」。
-3. 选择「新建」里的本地配置，导入 `client/clash-verge.yaml`。也可以把这个文件拖进订阅页。
-4. 选中这份配置并启用。
-5. 打开「系统代理」，或者打开「虚拟网卡 / Tun」。两个都开时，以 Tun 为准。
-6. 进入「代理」，选择 `落地-SS2022`。
-7. 浏览器打开 `https://ip.sb`。页面上的 IP 应是 `150.66.49.113`。
-
-这份配置的本地混合端口是 `7890`。局域网设备不能连这台电脑的代理（`allow-lan: false`）。内网地址直连，其余流量走落地节点。旧版 Clash Premium 不支持 SS2022，不要用它导入。
-
-如果已经有自己的 Clash 配置，只把上面的节点贴进 `proxies`，并在你的策略组里加上 `落地-SS2022`。
-
-## 服务器上只做这两步
-
-### 1. 云厂商安全组
-
-在运行脚本之前，到 VPS 面板的安全组或防火墙里放行下面三条。来源可以用 `0.0.0.0/0`；如果只想自己用，来源改成你家的公网 IP。
-
-- TCP `22022`
-- TCP `24443`
-- UDP `24443`
-
-面板里没有安全组、或者默认已经全部放行时，跳过这一步。
-
-先放行 `22022` 再运行脚本。脚本会把 SSH 从 `22` 改走 `22022`，云面板如果仍只放行 `22`，当前连接还在，但新连接会进不来。
-
-### 2. 上传并执行
-
-在你自己的电脑上，进入本仓库目录后执行。现在 SSH 还是 `22`，所以第一次上传不要加新端口：
+系统按 Debian/Ubuntu 处理。上传 `server/install.sh` 后执行：
 
 ```bash
-scp -P 22 server/install.sh 用户名@150.66.49.113:/tmp/install.sh
-ssh -p 22 用户名@150.66.49.113
-sudo bash /tmp/install.sh
+scp server/install.sh root@83.229.121.209:/tmp/install.sh
+ssh root@83.229.121.209
+bash /tmp/install.sh
 ```
 
-`用户名` 用你现在登录这台 VPS 的用户，脚本不会改它，也不会改密码登录。
-
-脚本开始改 SSH 前会倒计时 15 秒，可以按 Ctrl+C 取消。倒计时出现时，安全组里的 `22022` 应该已经放行。
-
-脚本跑完后不要关闭这个窗口。另开一个终端测试：
+脚本会核对公网 IP 是不是 `83.229.121.209`。出网 IP 探测失败、但你确认就是这台机器时：
 
 ```bash
-ssh -p 22022 用户名@150.66.49.113
+bash /tmp/install.sh --force-ip
 ```
 
-新窗口登录成功后，再关闭旧窗口。
+脚本会：
 
-## 脚本实际会做的事
+1. 拒绝在腾讯 `10.100.132.202` 或百度 `192.168.16.2` 上运行。
+2. 从 GitHub 下载当前 sing-box 正式版 deb 并安装，写入 `/etc/sing-box/config.json`，监听 `24443/tcp` 和 `24443/udp`。
+3. 尝试打开 BBR。打不开时继续安装，代理不受影响。
+4. 不开启 `ip_forward`。这是用户态代理，不是网卡转发。
+5. 本机 UFW 或 firewalld 如果已经开着，会放行 `24443`。没开则不主动打开防火墙。
+6. 把节点写到 `/root/ss2022-landing.txt` 和 `/root/ss2022-clash.yaml`，权限 `600`。
 
-`server/install.sh` 是完整安装程序，服务器上只需要这一个文件。它会：
+IPv6 可用时监听 `::`，同时接收 IPv4。IPv6 关闭时监听 `0.0.0.0`。密码和端口不变。省略 `network` 时，sing-box 同时监听 TCP 和 UDP。
 
-1. 安装 `curl`、`ufw`、`fail2ban`、`openssh-server`。
-2. 打开 BBR。写入 `/etc/sysctl.d/99-landing.conf`：
+加密是 `2022-blake3-aes-256-gcm`。不要在客户端里选普通的 `aes-256-gcm`。
 
-```text
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_slow_start_after_idle = 0
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-```
-
-3. 启用 UFW：默认拒绝入站、放行出站，并放行 `22/tcp`、`22022/tcp`、`24443/tcp`、`24443/udp`。确认 SSH 已经改到 `22022` 之后，再删掉 `22` 的放行规则。
-4. 从 `https://deb.sagernet.org/` 安装 sing-box，写入 `/etc/sing-box/config.json`，检查配置，然后开机自启。
-5. 把 SSH 改到 `22022`。Ubuntu 26.04 的 SSH 由 `ssh.socket` 接管监听，所以脚本同时写：
-   - `/etc/ssh/sshd_config.d/99-port.conf`：`Port 22022`
-   - `/etc/systemd/system/ssh.socket.d/override.conf`：清空原来的 `22`，只听 `22022`
-6. 让 fail2ban 只看守 `22022`。5 次失败后封禁 1 小时，封禁方式走 UFW。
-7. 把连接信息写到 `/root/ss2022-landing.txt`，权限 `600`。
-
-IPv6 可用时，sing-box 监听 `::`，这个套接字同时接收 IPv4 和 IPv6。IPv6 被系统关掉时，脚本改听 `0.0.0.0`，密码和端口不变。
-
-不需要打开 `net.ipv4.ip_forward`。这是用户态代理：客户端连到 `24443`，sing-box 再替客户端访问网站。它不是网卡上的 NAT 转发。
-
-sing-box 服务用户是 `sing-box`，配置文件权限是 `640`，属主 `root:sing-box`。`/etc/sing-box` 目录里不要再放别的 `.json`，服务启动参数是 `-C /etc/sing-box`，该目录下每个 JSON 都会被加载。
-
-服务器上的配置如下。IPv6 关闭时，`listen` 会由脚本写成 `0.0.0.0`：
-
-```json
-{
-  "log": {
-    "level": "info",
-    "timestamp": true
-  },
-  "inbounds": [
-    {
-      "type": "shadowsocks",
-      "tag": "ss-in",
-      "listen": "::",
-      "listen_port": 24443,
-      "method": "2022-blake3-aes-256-gcm",
-      "password": "WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0="
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
-}
-```
-
-同一份文件在 `server/config.json`。配置已在 sing-box 1.14.3 上检查通过：省略 `network` 时，TCP 和 UDP 会一起监听。
-
-## 装完后在服务器上核对
+装完核对：
 
 ```bash
 systemctl status sing-box --no-pager
-ss -lntup | grep -E '22022|24443'
-sysctl net.ipv4.tcp_congestion_control
+ss -lntup | grep 24443
 ```
 
-正常时能看到：
+应同时看到 TCP `LISTEN` 和 UDP `UNCONN`，进程都是 sing-box。
 
-- `22022` 是 TCP，进程属于 SSH。
-- `24443` 同时有一条 TCP `LISTEN` 和一条 UDP `UNCONN`，进程都是 `sing-box`。
-- 拥塞控制是 `bbr`。
+## 2. 腾讯和百度只做转发
 
-查看代理日志：
+同一个 `entry/forward.sh` 上传到两台入口。脚本看到 `10.100.132.202` 就按腾讯处理，看到 `192.168.16.2` 就按百度处理。
 
 ```bash
-journalctl -u sing-box -n 50 --no-pager
+scp entry/forward.sh root@150.158.185.159:/tmp/forward.sh
+scp entry/forward.sh root@106.12.30.105:/tmp/forward.sh
+
+ssh root@150.158.185.159 'bash /tmp/forward.sh'
+ssh root@106.12.30.105 'bash /tmp/forward.sh'
 ```
 
-升级 sing-box 时如果 apt 询问配置文件，选择保留本地版本，不要用软件包里的示例配置覆盖 `/etc/sing-box/config.json`。
+每台入口上的转发是：
 
-## SSH 连不上时
+| 入口公网端口 | 转到 |
+| --- | --- |
+| `24443/tcp` 和 `24443/udp` | `161.248.136.186:24443`（传输 A） |
+| `24444/tcp` 和 `24444/udp` | `138.252.162.176:24443`（传输 B） |
 
-当前还开着的那个旧窗口里执行：
+脚本会打开 `ip_forward`，做 DNAT 和回程 masquerade，并在重启后由 `ix-entry.service` 重新加载。入口不安装 sing-box，也不保存密码。
+
+取消这次新增的转发：
 
 ```bash
-sudo bash /root/revert-ssh-to-22.sh
+bash /tmp/forward.sh --remove
 ```
 
-它会去掉 `22022` 的覆盖配置，把 SSH 放回 `22`，并重新放行 UFW 的 `22/tcp`。然后另开窗口：
+这只删除 `ix_entry`。`po0relay` 和 `ix_forward` 不动，`ip_forward` 也保持打开。
 
-```bash
-ssh -p 22 用户名@150.66.49.113
+## 节点参数
+
+| 项目 | 值 |
+| --- | --- |
+| 加密 | `2022-blake3-aes-256-gcm` |
+| 密码 | `qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I=` |
+| 传输 | TCP + UDP，无插件，无 multiplex |
+
+四条入口线路密码相同。最后一条直连香港，不经过百度、腾讯和 IX，只用来确认落地本身。
+
+## SS 链接
+
+整行复制。给 v2rayN、Shadowrocket、sing-box，或 Clash Verge 的「从剪贴板导入」。
+
+```text
+ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206cUJoVERqM09aRnE3cFlVS2RyTkVDSnBjNEFxQTE2ZldRUmI1M1NYd243ST0@150.158.185.159:24443#Tencent-IX-A
+ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206cUJoVERqM09aRnE3cFlVS2RyTkVDSnBjNEFxQTE2ZldRUmI1M1NYd243ST0@150.158.185.159:24444#Tencent-IX-B
+ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206cUJoVERqM09aRnE3cFlVS2RyTkVDSnBjNEFxQTE2ZldRUmI1M1NYd243ST0@106.12.30.105:24443#Baidu-IX-A
+ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206cUJoVERqM09aRnE3cFlVS2RyTkVDSnBjNEFxQTE2ZldRUmI1M1NYd243ST0@106.12.30.105:24444#Baidu-IX-B
+ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206cUJoVERqM09aRnE3cFlVS2RyTkVDSnBjNEFxQTE2ZldRUmI1M1NYd243ST0@83.229.121.209:24443#HK-Direct-Test
 ```
 
-脚本在倒计时之前失败的话，SSH 仍然是 `22`，还没有改端口。
+同一份内容在 `client/ss-uri.txt`。
+
+## Clash Verge
+
+Clash Verge Rev 使用 Mihomo，可以导入 `client/clash-verge.yaml`。旧版 Clash Premium 不支持 SS2022。
+
+导入：
+
+1. 打开 Clash Verge Rev，进入「订阅」。
+2. 新建本地配置，导入 `client/clash-verge.yaml`。也可以把文件拖进订阅页。
+3. 选中这份配置。
+4. 打开「系统代理」或「虚拟网卡 / Tun」。两个都开时，以 Tun 为准。
+5. 在「代理」里选择「入口选择」。默认会走「自动选择」，在四条入口线路里挑延迟更低的一条。
+6. 浏览器打开 `https://ip.sb`。出口应是香港 `83.229.121.209`。
+
+本地混合端口是 `7890`。`allow-lan: false`，局域网设备不能连这台电脑的代理。内网地址直连，其余走当前节点。
+
+已经有自己的配置时，只把下面几段加进 `proxies`，并在策略组里加上对应名字：
+
+```yaml
+- name: "腾讯-IX-A"
+  type: ss
+  server: 150.158.185.159
+  port: 24443
+  cipher: 2022-blake3-aes-256-gcm
+  password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+  udp: true
+- name: "腾讯-IX-B"
+  type: ss
+  server: 150.158.185.159
+  port: 24444
+  cipher: 2022-blake3-aes-256-gcm
+  password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+  udp: true
+- name: "百度-IX-A"
+  type: ss
+  server: 106.12.30.105
+  port: 24443
+  cipher: 2022-blake3-aes-256-gcm
+  password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+  udp: true
+- name: "百度-IX-B"
+  type: ss
+  server: 106.12.30.105
+  port: 24444
+  cipher: 2022-blake3-aes-256-gcm
+  password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+  udp: true
+- name: "香港直连-仅测试"
+  type: ss
+  server: 83.229.121.209
+  port: 24443
+  cipher: 2022-blake3-aes-256-gcm
+  password: "qBhTDj3OZFq7pYUKdrNECJpc4AqA16fWQRb53SXwn7I="
+  udp: true
+```
+
+「自动选择」里不要放「香港直连-仅测试」。
+
+如果某一条线路 TCP 能通、UDP 超时，把那一条的 `udp` 改成 `false`。TCP 代理仍然可用。
 
 ## 可选的 sing-box 客户端
 
-不用 Clash 时，可以用 `client/sing-box-client.json`。它在本机 `127.0.0.1:2080` 提供 HTTP/SOCKS 混合端口，私网地址直连，其余走这台落地机：
+不用 Clash 时，用 `client/sing-box-client.json`。本机 `127.0.0.1:2080` 是 HTTP/SOCKS 混合端口，默认走腾讯传输 A，可以在 selector 里改线路：
 
 ```bash
 sing-box run -c client/sing-box-client.json
 ```
 
 系统代理填 `127.0.0.1:2080`。不要和 Clash Verge 的 `7890` 同时设成系统代理。
+
+## 怎么确认整条链路
+
+先只开香港，在香港上执行：
+
+```bash
+ss -lntup | grep 24443
+```
+
+再在腾讯和百度上执行转发脚本。入口上应能看到计数：
+
+```bash
+nft list table ip ix_entry
+```
+
+然后从自己的电脑连「腾讯-IX-A」。同时：
+
+```bash
+# 腾讯或百度
+tcpdump -n -i eth0 'port 24443 or port 24444'
+
+# 香港
+tcpdump -n -i any port 24443
+journalctl -u sing-box -f
+```
+
+入口上的源地址应是你的客户端。香港上的源地址应是 IX，不是你家的地址，也不是百度或腾讯的公网地址。sing-box 日志里出现连接后，`https://ip.sb` 显示 `83.229.121.209`。
+
+连不上时按这个顺序看：
+
+1. 云安全组是否放行了对应的 TCP 和 UDP。
+2. 入口上 `sysctl net.ipv4.ip_forward` 是否为 `1`，`nft list table ip ix_entry` 的 counter 是否在增加。counter 一直是 0，说明包还没进这台机器。
+3. 入口上 `ping 161.248.136.186` 和 `ping 138.252.162.176` 是否通。
+4. IX 面板里源端口是否仍是 `83.229.121.209:24443`，状态是否为 active。
+5. 香港 `ss` 是否在监听 24443。认证失败时，检查加密是不是 `2022-blake3-aes-256-gcm`，密码有没有少掉末尾的 `=`。
