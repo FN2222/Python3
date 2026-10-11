@@ -1,0 +1,35 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+find-process-mode: strict
+unified-delay: true
+tcp-concurrent: true
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 1.1.1.1
+    - 8.8.8.8
+
+proxies:
+  - name: "落地-SS2022"
+    type: ss
+    server: 150.66.49.113
+    port: 24443
+    cipher: 2022-blake3-aes-256-gcm
+    password: "WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0="
+    udp: true
+
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "落地-SS2022"
+
+rules:
+  - GEOIP,private,DIRECT,no-resolve
+  - MATCH,PROXY
