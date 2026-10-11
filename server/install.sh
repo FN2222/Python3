@@ -289,18 +289,42 @@ net.ipv4.tcp_wmem = 4096 65536 16777216
 EOF
   modprobe tcp_bbr 2>/dev/null || true
   sysctl --system >/dev/null
+  sysctl -w net.core.default_qdisc=fq >/dev/null
+  if ! sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null; then
+    modprobe tcp_bbr 2>/dev/null || true
+    sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null
+  fi
+  local cc qdisc
+  cc="$(sysctl -n net.ipv4.tcp_congestion_control)"
+  qdisc="$(sysctl -n net.core.default_qdisc)"
+  if [[ "${cc}" != "bbr" || "${qdisc}" != "fq" ]]; then
+    sysctl net.ipv4.tcp_available_congestion_control || true
+    die "BBR 没有打开。当前拥塞控制=${cc}，队列=${qdisc}"
+  fi
 }
 
 write_credentials() {
   cat > /root/ss2022-landing.txt << EOF
 服务器 IP: ${SERVER_IP}
-SSH: ssh -p ${SSH_PORT} 用户名@${SERVER_IP}
+SSH: ssh -p ${SSH_PORT} 你的用户名@${SERVER_IP}
+BBR: 已开启
 协议: Shadowsocks 2022
 方法: ${SS_METHOD}
 端口: ${SS_PORT}
 传输: TCP + UDP
 密码: ${SS_PASSWORD}
-分享链接: ${SS_URI}
+
+SS 链接:
+${SS_URI}
+
+Clash Verge 节点:
+- name: "落地-SS2022"
+  type: ss
+  server: ${SERVER_IP}
+  port: ${SS_PORT}
+  cipher: ${SS_METHOD}
+  password: "${SS_PASSWORD}"
+  udp: true
 EOF
   chmod 600 /root/ss2022-landing.txt
 }
@@ -367,21 +391,28 @@ main() {
   log "安装完成"
   cat << EOF
 
-落地节点已经启动。
-  IP           ${SERVER_IP}
-  SSH          ${SSH_PORT}/tcp
-  业务端口     ${SS_PORT}/tcp 和 ${SS_PORT}/udp
-  加密         ${SS_METHOD}
-  密码         ${SS_PASSWORD}
-  分享链接     ${SS_URI}
+================ 安装完成，下面两段直接复制 ================
 
-凭据已写入 /root/ss2022-landing.txt
-请马上另开一个终端测试：
-  ssh -p ${SSH_PORT} 用户名@${SERVER_IP}
-不要关闭当前窗口，直到新连接成功。
+BBR: 已开启 ($(sysctl -n net.ipv4.tcp_congestion_control) + $(sysctl -n net.core.default_qdisc))
+SSH: ssh -p ${SSH_PORT} 你的用户名@${SERVER_IP}
+
+---------- SS 链接（整行复制）----------
+${SS_URI}
+
+---------- Clash Verge 节点（整段复制）----------
+- name: "落地-SS2022"
+  type: ss
+  server: ${SERVER_IP}
+  port: ${SS_PORT}
+  cipher: ${SS_METHOD}
+  password: "${SS_PASSWORD}"
+  udp: true
+
+上面的内容也保存在 /root/ss2022-landing.txt
+现在不要关闭这个窗口。另开一个终端，用 22022 登录成功后再关闭：
+  ssh -p ${SSH_PORT} 你的用户名@${SERVER_IP}
 EOF
   ss -lntup | grep -E ":${SSH_PORT}|:${SS_PORT}" || true
-  sysctl net.ipv4.tcp_congestion_control
 }
 
 main "$@"

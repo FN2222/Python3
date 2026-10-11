@@ -1,5 +1,11 @@
 # Ubuntu 26.04 LTS 落地节点
 
+登录 `150.66.49.113` 之后，整行复制这一条命令。它会装好 sing-box、打开 BBR、把 SSH 改到 22022，并在最后打印 SS 链接和 Clash Verge 节点。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FN2222/Python3/main/server/install.sh -o /tmp/install.sh && sudo bash /tmp/install.sh
+```
+
 这台机器的参数已经全部写好，不需要再改端口、密码或 IP。系统按 Ubuntu 26.04 LTS（也就是 26.0 LTS）处理；同一脚本在 Ubuntu 22.04 / 24.04 上也能用。
 
 这份目录里的分享链接和密码是这台服务器的真实密钥。不要把仓库公开。
