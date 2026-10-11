@@ -88,7 +88,13 @@ def main() -> None:
                 fail(f"old landing secret still in {path}")
 
     subprocess.run(["bash", "-n", "server/install.sh"], cwd=ROOT, check=True)
+    subprocess.run(["bash", "-n", "server/ssh-22022.sh"], cwd=ROOT, check=True)
     subprocess.run(["bash", "-n", "entry/forward.sh"], cwd=ROOT, check=True)
+    ssh_script = (ROOT / "server" / "ssh-22022.sh").read_text()
+    if "SSH_PORT=22022" not in ssh_script or 'HK_IP="83.229.121.209"' not in ssh_script:
+        fail("ssh port script has the wrong target")
+    if "sing-box" not in ssh_script:
+        fail("ssh port script must leave sing-box running")
 
     uris = bash("source server/install.sh && build_token && print_uris")
     uri_file = (ROOT / "client" / "ss-uri.txt").read_text()

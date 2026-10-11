@@ -84,6 +84,14 @@ ss -lntup | grep 24443
 
 应同时看到 TCP `LISTEN` 和 UDP `UNCONN`，进程都是 sing-box。
 
+落地装好后，可以把 SSH 改到 `22022` 并关闭本机的 `22`。先在香港面板放行 TCP `22022`，面板里的 `22` 先留着。然后在香港服务器上执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FN2222/Python3/cursor/hk-landing-ix-entry-7286/server/ssh-22022.sh -o /tmp/ssh-22022.sh && bash /tmp/ssh-22022.sh
+```
+
+脚本有 15 秒可以按 Ctrl+C 取消。它不重启 sing-box。完成后另开窗口测试 `ssh -p 22022 root@83.229.121.209`。新窗口登录成功后，再从面板删除 TCP `22`。新窗口连不上时，留在原来的窗口执行 `bash /root/revert-ssh-to-22.sh`。
+
 ## 2. 腾讯和百度只做转发
 
 同一个脚本看到 `10.100.132.202` 就按腾讯处理，看到 `192.168.16.2` 就按百度处理。在当前这台机器上各粘贴一条：
