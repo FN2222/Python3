@@ -1,23 +1,27 @@
 #!/usr/bin/env bash
 # Ubuntu 26.04 LTS 落地 VPS 一键安装。
-# 参数已写死：SSH 22022，sing-box Shadowsocks 2022 监听 TCP+UDP 24443。
+# 目标：61.195.99.30
+# SSH 22022，仅密钥登录；sing-box Shadowsocks 2022 监听 TCP+UDP 24443。
 # 用法：sudo bash install.sh
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "请用 bash 执行：sudo bash $0"
+  exit 1
+fi
 set -euo pipefail
 
 SSH_PORT=22022
 SS_PORT=24443
 SS_METHOD="2022-blake3-aes-256-gcm"
-SS_PASSWORD='WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0='
-SERVER_IP="150.66.49.113"
-SS_URI='ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206V2FMYjhOV2lXOTBiNm01TXRtSjBHaWFWT0RVa1Bjc3owSkFmMllwaHZWMD0@150.66.49.113:24443#Landing-SS2022'
-
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "请用 root 执行：sudo bash $0"
-  exit 1
-fi
+SS_PASSWORD='tPWMZB2C6gOCGG2tAtCesH3mgN8b2j93YTVhlqEjiIo='
+SERVER_IP="61.195.99.30"
+SS_URI='ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206dFBXTVpCMkM2Z09DR0cydEF0Q2VzSDNtZ044YjJqOTNZVFZobHFFamlJbz0@61.195.99.30:24443#Landing-SS2022'
+SSH_PUBKEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPz8NeEIJCpMCUvHs85Mj+qTLMDyE9Ix07aUQdlZh7zO po0-deploy'
+SSH_PUBKEY_FINGERPRINT='SHA256:obVPlFDzR5+j4okkVp3sjfRsE+iZeBkL7YDDwjBaSEs'
 
 export DEBIAN_FRONTEND=noninteractive
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+KEY_USERS=()
 
 log() {
   printf '\n[%s] %s\n' "$(date '+%F %T')" "$*"
@@ -50,7 +54,8 @@ ufw_is_active() {
 }
 
 remove_ufw_22() {
-  local i line num
+  local line num
+  local i
   for i in $(seq 1 30); do
     line="$(ufw status numbered | grep -E '\[[[:space:]]*[0-9]+\]' | grep -E '(^|[^0-9])22/tcp|OpenSSH' | head -n 1 || true)"
     [[ -z "${line}" ]] && return 0
@@ -58,6 +63,147 @@ remove_ufw_22() {
     [[ -z "${num}" ]] && return 0
     ufw --force delete "${num}"
   done
+}
+
+verify_uri() {
+  local decoded_len generated
+  decoded_len="$(printf '%s' "${SS_PASSWORD}" | base64 -d | wc -c | tr -d '[:space:]')"
+  [[ "${decoded_len}" == "32" ]] || die "SS2022 密码解码后不是 32 字节，不能用于 ${SS_METHOD}"
+  generated="ss://$(printf '%s' "${SS_METHOD}:${SS_PASSWORD}" | base64 -w 0 | tr -d '=')@${SERVER_IP}:${SS_PORT}#Landing-SS2022"
+  [[ "${generated}" == "${SS_URI}" ]] || die "内置分享链接和密码不一致：${generated}"
+}
+
+validate_pubkey() {
+  local tmp got
+  tmp="$(mktemp)"
+  printf '%s\n' "${SSH_PUBKEY}" > "${tmp}"
+  chmod 600 "${tmp}"
+  got="$(ssh-keygen -l -f "${tmp}")"
+  rm -f "${tmp}"
+  grep -q "${SSH_PUBKEY_FINGERPRINT}" <<<"${got}" || die "公钥指纹不符：${got}"
+}
+
+user_already_keyed() {
+  local existing
+  for existing in "${KEY_USERS[@]}"; do
+    [[ "${existing}" == "$1" ]] && return 0
+  done
+  return 1
+}
+
+install_authorized_key() {
+  local user="$1"
+  local passwd home shell group ak blob mode
+  if user_already_keyed "${user}"; then
+    return 0
+  fi
+  passwd="$(getent passwd "${user}" || true)"
+  [[ -n "${passwd}" ]] || return 0
+  home="$(cut -d: -f6 <<<"${passwd}")"
+  shell="$(cut -d: -f7 <<<"${passwd}")"
+  [[ -n "${home}" && "${home}" != "/" ]] || return 0
+
+  if [[ "${user}" != "root" ]]; then
+    case "${shell}" in
+      */bash|*/sh|*/zsh|*/fish|*/dash) ;;
+      *) return 0 ;;
+    esac
+  else
+    case "${shell}" in
+      */bash|*/sh|*/zsh|*/fish|*/dash) ;;
+      *)
+        echo "root 的登录 shell 是 ${shell}，改为 /bin/bash，否则密钥无法登录 root。"
+        usermod -s /bin/bash root
+        ;;
+    esac
+  fi
+
+  group="$(id -gn "${user}")"
+  install -d -m 700 -o "${user}" -g "${group}" "${home}/.ssh"
+  ak="${home}/.ssh/authorized_keys"
+  if [[ ! -e "${ak}" ]]; then
+    install -m 600 -o "${user}" -g "${group}" /dev/null "${ak}"
+  fi
+  blob="$(awk '{print $2}' <<<"${SSH_PUBKEY}")"
+  if ! awk '{print $2}' "${ak}" | grep -qxF "${blob}"; then
+    printf '%s\n' "${SSH_PUBKEY}" >> "${ak}"
+  fi
+  chown "${user}:${group}" "${ak}" "${home}/.ssh"
+  chmod 700 "${home}/.ssh"
+  chmod 600 "${ak}"
+  chmod go-w "${home}" || true
+
+  mode="$(stat -c '%a' "${home}")"
+  if (( (8#${mode} & 0022) != 0 )); then
+    die "${home} 对组或其他用户可写，sshd 会拒绝密钥。请先收紧家目录权限。"
+  fi
+  mode="$(stat -c '%a' "${home}/.ssh")"
+  if [[ "${mode}" != "700" ]]; then
+    die "${home}/.ssh 权限是 ${mode}，必须是 700"
+  fi
+  mode="$(stat -c '%a' "${ak}")"
+  if [[ "${mode}" != "600" ]]; then
+    die "${ak} 权限是 ${mode}，必须是 600"
+  fi
+  KEY_USERS+=("${user}")
+}
+
+install_keys() {
+  local user
+  KEY_USERS=()
+  install_authorized_key root
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    install_authorized_key "${SUDO_USER}"
+  fi
+  if [[ -r /etc/group ]]; then
+    while IFS= read -r user; do
+      [[ -n "${user}" ]] || continue
+      install_authorized_key "${user}"
+    done < <(awk -F: '$1=="sudo" || $1=="admin" || $1=="wheel" { n=split($4, a, ","); for (i=1; i<=n; i++) if (a[i] != "") print a[i] }' /etc/group | sort -u)
+  fi
+  while IFS=: read -r user _ uid _ _ _ shell; do
+    [[ "${uid}" =~ ^[0-9]+$ ]] || continue
+    if (( uid >= 1000 && uid < 60000 )); then
+      case "${shell}" in
+        */bash|*/sh|*/zsh|*/fish|*/dash) install_authorized_key "${user}" ;;
+      esac
+    fi
+  done < /etc/passwd
+  if ((${#KEY_USERS[@]} == 0)); then
+    die "没有写入任何公钥。SSH 尚未改动。"
+  fi
+  echo "公钥已写入这些账号：${KEY_USERS[*]}"
+  echo "指纹：${SSH_PUBKEY_FINGERPRINT}"
+}
+
+backup_sshd() {
+  if [[ -f /root/sshd-backup/sshd_config ]]; then
+    return 0
+  fi
+  install -d -m 700 /root/sshd-backup
+  cp -a /etc/ssh/sshd_config /root/sshd-backup/sshd_config
+  if [[ -d /etc/ssh/sshd_config.d ]]; then
+    rm -rf /root/sshd-backup/sshd_config.d
+    cp -a /etc/ssh/sshd_config.d /root/sshd-backup/sshd_config.d
+  else
+    install -d -m 755 /root/sshd-backup/sshd_config.d
+  fi
+  getent passwd root | cut -d: -f7 > /root/sshd-backup/root-shell
+  chmod 600 /root/sshd-backup/root-shell
+}
+
+restore_sshd_files() {
+  if [[ -f /root/sshd-backup/sshd_config ]]; then
+    cp -a /root/sshd-backup/sshd_config /etc/ssh/sshd_config
+  fi
+  if [[ -d /root/sshd-backup/sshd_config.d ]]; then
+    rm -rf /etc/ssh/sshd_config.d
+    cp -a /root/sshd-backup/sshd_config.d /etc/ssh/sshd_config.d
+  fi
+  rm -f /etc/systemd/system/ssh.socket.d/override.conf
+  rm -f /etc/systemd/system/sshd.socket.d/override.conf
+  rmdir /etc/systemd/system/ssh.socket.d 2>/dev/null || true
+  rmdir /etc/systemd/system/sshd.socket.d 2>/dev/null || true
 }
 
 write_revert_script() {
@@ -68,9 +214,29 @@ if [[ "${EUID}" -ne 0 ]]; then
   echo "请用 root 执行：sudo bash /root/revert-ssh-to-22.sh"
   exit 1
 fi
+if [[ -f /root/sshd-backup/sshd_config ]]; then
+  cp -a /root/sshd-backup/sshd_config /etc/ssh/sshd_config
+fi
+if [[ -d /root/sshd-backup/sshd_config.d ]]; then
+  rm -rf /etc/ssh/sshd_config.d
+  cp -a /root/sshd-backup/sshd_config.d /etc/ssh/sshd_config.d
+fi
 rm -f /etc/systemd/system/ssh.socket.d/override.conf
-rm -f /etc/ssh/sshd_config.d/99-port.conf
+rm -f /etc/systemd/system/sshd.socket.d/override.conf
 rmdir /etc/systemd/system/ssh.socket.d 2>/dev/null || true
+rmdir /etc/systemd/system/sshd.socket.d 2>/dev/null || true
+install -d -m 755 /etc/ssh/sshd_config.d
+if ! grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$' /etc/ssh/sshd_config; then
+  tmp="$(mktemp)"
+  printf '%s\n' 'Include /etc/ssh/sshd_config.d/*.conf' | cat - /etc/ssh/sshd_config > "${tmp}"
+  mv "${tmp}" /etc/ssh/sshd_config
+fi
+cat > /etc/ssh/sshd_config.d/00-restore-password.conf << 'EOT'
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+PubkeyAuthentication yes
+PermitRootLogin yes
+EOT
 systemctl daemon-reload
 if systemctl cat ssh.socket >/dev/null 2>&1 && { systemctl is-enabled ssh.socket >/dev/null 2>&1 || systemctl is-active ssh.socket >/dev/null 2>&1; }; then
   systemctl restart ssh.socket
@@ -82,30 +248,128 @@ else
   systemctl restart sshd.service
 fi
 ufw allow 22/tcp comment 'SSH restore' || true
-echo "已尝试把 SSH 恢复到 22。请立刻另开窗口执行：ssh -p 22 用户名@150.66.49.113"
+echo "已把 SSH 放回 22，并重新允许密码登录。"
+echo "请立刻另开窗口：ssh -p 22 用户名@61.195.99.30"
+echo "登录成功后删除 /etc/ssh/sshd_config.d/00-restore-password.conf，再决定是否重新执行安装脚本。"
+echo "root 原来的 shell 记录在 /root/sshd-backup/root-shell，紧急恢复时不会把它改回 nologin。"
 EOF
   chmod 700 /root/revert-ssh-to-22.sh
 }
 
-configure_ssh_port() {
-  local socket_unit=""
-  local use_socket=0
+comment_auth_directives() {
+  local file="$1"
+  local base
+  [[ -f "${file}" ]] || return 0
+  base="$(basename "${file}")"
+  case "${base}" in
+    00-landing-auth.conf|99-port.conf|00-restore-password.conf) return 0 ;;
+  esac
+  sed -i -E \
+    -e 's/^([[:space:]]*)(PasswordAuthentication[[:space:]].*)$/# landing-disabled: \1\2/' \
+    -e 's/^([[:space:]]*)(KbdInteractiveAuthentication[[:space:]].*)$/# landing-disabled: \1\2/' \
+    -e 's/^([[:space:]]*)(ChallengeResponseAuthentication[[:space:]].*)$/# landing-disabled: \1\2/' \
+    -e 's/^([[:space:]]*)(PermitRootLogin[[:space:]].*)$/# landing-disabled: \1\2/' \
+    -e 's/^([[:space:]]*)(PubkeyAuthentication[[:space:]].*)$/# landing-disabled: \1\2/' \
+    -e 's/^([[:space:]]*)(AuthenticationMethods[[:space:]].*)$/# landing-disabled: \1\2/' \
+    "${file}"
+}
 
-  if systemctl cat ssh.socket >/dev/null 2>&1; then
-    socket_unit="ssh.socket"
-  elif systemctl cat sshd.socket >/dev/null 2>&1; then
-    socket_unit="sshd.socket"
+neutralize_conflicting_auth() {
+  local extra
+  comment_auth_directives /etc/ssh/sshd_config
+  shopt -s nullglob
+  for extra in /etc/ssh/sshd_config.d/*.conf; do
+    comment_auth_directives "${extra}"
+  done
+  shopt -u nullglob
+}
+
+ensure_sshd_include() {
+  if ! grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf[[:space:]]*$' /etc/ssh/sshd_config; then
+    local tmp
+    tmp="$(mktemp)"
+    printf '%s\n' 'Include /etc/ssh/sshd_config.d/*.conf' | cat - /etc/ssh/sshd_config > "${tmp}"
+    mv "${tmp}" /etc/ssh/sshd_config
   fi
+}
 
-  if [[ -n "${socket_unit}" ]]; then
-    if systemctl is-enabled "${socket_unit}" >/dev/null 2>&1 || systemctl is-active "${socket_unit}" >/dev/null 2>&1; then
-      use_socket=1
+effective_auth_ok() {
+  local user="$1"
+  local out methods
+  out="$(sshd -T -C "user=${user},host=localhost,addr=127.0.0.1" 2>/dev/null)" || return 1
+  grep -q '^passwordauthentication no$' <<<"${out}" || return 1
+  grep -q '^kbdinteractiveauthentication no$' <<<"${out}" || return 1
+  grep -q '^pubkeyauthentication yes$' <<<"${out}" || return 1
+  grep -q "^port ${SSH_PORT}$" <<<"${out}" || return 1
+  if [[ "${user}" == "root" ]]; then
+    grep -Eq '^permitrootlogin (prohibit-password|without-password)$' <<<"${out}" || return 1
+  fi
+  # 默认值常是 any。PasswordAuthentication 已关闭时，any 不会重新打开密码。
+  methods="$(grep '^authenticationmethods ' <<<"${out}" || true)"
+  if [[ -n "${methods}" ]] && ! grep -Eq 'any|publickey' <<<"${methods}"; then
+    return 1
+  fi
+  return 0
+}
+
+ssh_socket_unit() {
+  if systemctl cat ssh.socket >/dev/null 2>&1; then
+    if systemctl is-enabled ssh.socket >/dev/null 2>&1 || systemctl is-active ssh.socket >/dev/null 2>&1; then
+      printf '%s\n' "ssh.socket"
+      return 0
     fi
   fi
+  if systemctl cat sshd.socket >/dev/null 2>&1; then
+    if systemctl is-enabled sshd.socket >/dev/null 2>&1 || systemctl is-active sshd.socket >/dev/null 2>&1; then
+      printf '%s\n' "sshd.socket"
+      return 0
+    fi
+  fi
+  return 0
+}
 
+write_socket_override() {
+  local socket_unit="$1"
+  [[ -n "${socket_unit}" ]] || return 0
+  mkdir -p "/etc/systemd/system/${socket_unit}.d"
+  if ipv6_enabled; then
+    cat > "/etc/systemd/system/${socket_unit}.d/override.conf" << EOF
+[Socket]
+ListenStream=
+BindIPv6Only=ipv6-only
+ListenStream=0.0.0.0:${SSH_PORT}
+ListenStream=[::]:${SSH_PORT}
+EOF
+  else
+    cat > "/etc/systemd/system/${socket_unit}.d/override.conf" << EOF
+[Socket]
+ListenStream=
+ListenStream=0.0.0.0:${SSH_PORT}
+EOF
+  fi
+}
+
+restart_ssh() {
+  local socket_unit="$1"
+  systemctl daemon-reload
+  if [[ -n "${socket_unit}" ]]; then
+    systemctl restart "${socket_unit}"
+  elif systemctl cat ssh.service >/dev/null 2>&1; then
+    systemctl enable ssh.service
+    systemctl restart ssh.service
+  else
+    systemctl enable sshd.service
+    systemctl restart sshd.service
+  fi
+}
+
+configure_ssh() {
+  local socket_unit extra user ok
+  socket_unit="$(ssh_socket_unit)"
+
+  ensure_sshd_include
   sed -i -E 's/^[[:space:]]*Port[[:space:]]+/# Port moved to sshd_config.d\/99-port.conf: /' /etc/ssh/sshd_config
-  mkdir -p /etc/ssh/sshd_config.d
-  local extra
+  install -d -m 755 /etc/ssh/sshd_config.d
   shopt -s nullglob
   for extra in /etc/ssh/sshd_config.d/*.conf; do
     [[ "$(basename "${extra}")" == "99-port.conf" ]] && continue
@@ -116,61 +380,65 @@ configure_ssh_port() {
   cat > /etc/ssh/sshd_config.d/99-port.conf << EOF
 Port ${SSH_PORT}
 EOF
-
-  if [[ "${use_socket}" -eq 1 ]]; then
-    mkdir -p "/etc/systemd/system/${socket_unit}.d"
-    if ipv6_enabled; then
-      cat > "/etc/systemd/system/${socket_unit}.d/override.conf" << EOF
-[Socket]
-ListenStream=
-BindIPv6Only=ipv6-only
-ListenStream=0.0.0.0:${SSH_PORT}
-ListenStream=[::]:${SSH_PORT}
+  cat > /etc/ssh/sshd_config.d/00-landing-auth.conf << 'EOF'
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+PermitEmptyPasswords no
+MaxAuthTries 3
+LoginGraceTime 60
+ClientAliveInterval 30
+ClientAliveCountMax 4
+X11Forwarding no
 EOF
-    else
-      cat > "/etc/systemd/system/${socket_unit}.d/override.conf" << EOF
-[Socket]
-ListenStream=
-ListenStream=0.0.0.0:${SSH_PORT}
-EOF
-    fi
-  fi
+  write_socket_override "${socket_unit}"
 
   if ! sshd -t; then
-    bash /root/revert-ssh-to-22.sh || true
-    die "sshd 配置校验失败，已尝试恢复到 22 端口"
+    echo "sshd 配置校验失败，正在还原文件。SSH 进程还没有重启。"
+    restore_sshd_files
+    die "sshd -t 失败，SSH 仍是原来的端口和登录方式"
   fi
 
-  systemctl daemon-reload
-  if [[ "${use_socket}" -eq 1 ]]; then
-    if ! systemctl restart "${socket_unit}"; then
-      bash /root/revert-ssh-to-22.sh || true
-      die "重启 ${socket_unit} 失败，已尝试恢复到 22 端口"
+  ok=1
+  for user in "${KEY_USERS[@]}"; do
+    if ! effective_auth_ok "${user}"; then
+      ok=0
+      break
     fi
-  elif systemctl cat ssh.service >/dev/null 2>&1; then
-    systemctl enable ssh.service
-    if ! systemctl restart ssh.service; then
-      bash /root/revert-ssh-to-22.sh || true
-      die "重启 ssh.service 失败，已尝试恢复到 22 端口"
+  done
+  if [[ "${ok}" -ne 1 ]]; then
+    echo "云镜像里的配置盖过了密钥登录，正在注释冲突项后重新检查。"
+    neutralize_conflicting_auth
+    if ! sshd -t; then
+      restore_sshd_files
+      die "注释冲突项后 sshd -t 失败，已还原，SSH 未重启"
     fi
-  else
-    systemctl enable sshd.service
-    if ! systemctl restart sshd.service; then
-      bash /root/revert-ssh-to-22.sh || true
-      die "重启 sshd.service 失败，已尝试恢复到 22 端口"
-    fi
+    for user in "${KEY_USERS[@]}"; do
+      if ! effective_auth_ok "${user}"; then
+        echo "----- sshd -T user=${user} -----"
+        sshd -T -C "user=${user},host=localhost,addr=127.0.0.1" | grep -Ei 'passwordauthentication|kbdinteractive|pubkeyauthentication|permitrootlogin|port |authenticationmethods' || true
+        restore_sshd_files
+        die "无法确认 ${user} 只会接受密钥。已还原配置文件，SSH 未重启"
+      fi
+    done
+  fi
+
+  if ! restart_ssh "${socket_unit}"; then
+    bash /root/revert-ssh-to-22.sh || true
+    die "重启 SSH 失败，已尝试恢复到 22 和密码登录"
   fi
 
   sleep 1
   if ! port_listening tcp "${SSH_PORT}"; then
-    echo "22022 没有监听成功，正在恢复 SSH。"
+    echo "${SSH_PORT} 没有监听成功，正在恢复 SSH。"
     bash /root/revert-ssh-to-22.sh || true
-    die "SSH 端口修改失败，已尝试恢复。请查看：journalctl -u ${socket_unit:-ssh} -n 50 --no-pager"
+    die "SSH 端口修改失败，已尝试恢复。请查看 journalctl -u ${socket_unit:-ssh} -n 50 --no-pager"
   fi
 
   if port_listening tcp 22; then
-    echo "警告：TCP 22 仍在监听。22022 已经可用，为避免锁死，防火墙暂时保留 22。"
-    echo "请另开窗口用 ssh -p ${SSH_PORT} 登录成功后，再执行：ufw status numbered，并删除 22 规则。"
+    echo "警告：TCP 22 仍在监听。${SSH_PORT} 已经可用，为避免锁死，防火墙暂时保留 22。"
+    echo "请另开窗口用密钥登录成功后，再执行 ufw status numbered，并删除 22 规则。"
     return 0
   fi
 
@@ -184,7 +452,11 @@ write_singbox_config() {
   fi
 
   install -d -m 755 /etc/sing-box
-  install -d -o sing-box -g sing-box -m 750 /var/lib/sing-box
+  if id sing-box >/dev/null 2>&1; then
+    install -d -o sing-box -g sing-box -m 750 /var/lib/sing-box
+  else
+    install -d -m 750 /var/lib/sing-box
+  fi
 
   shopt -s nullglob
   local stray
@@ -207,6 +479,8 @@ write_singbox_config() {
       "tag": "ss-in",
       "listen": "${listen_addr}",
       "listen_port": ${SS_PORT},
+      "tcp_fast_open": true,
+      "tcp_keep_alive": "2m",
       "method": "${SS_METHOD}",
       "password": "${SS_PASSWORD}"
     }
@@ -219,7 +493,9 @@ write_singbox_config() {
   ]
 }
 EOF
-  chown root:sing-box /etc/sing-box/config.json
+  if id sing-box >/dev/null 2>&1; then
+    chown root:sing-box /etc/sing-box/config.json
+  fi
   chmod 640 /etc/sing-box/config.json
 }
 
@@ -239,7 +515,7 @@ EOF
   apt-get install -y sing-box
   systemctl stop sing-box >/dev/null 2>&1 || true
   write_singbox_config
-  sing-box -D /var/lib/sing-box -C /etc/sing-box check
+  sing-box -D /var/lib/sing-box -C /etc/sing-box check || die "sing-box 配置检查失败"
   systemctl enable sing-box
   systemctl restart sing-box
   sleep 1
@@ -275,25 +551,58 @@ EOF
   systemctl restart fail2ban
 }
 
-configure_bbr() {
-  cat > /etc/sysctl.d/99-landing.conf << 'EOF'
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_slow_start_after_idle = 0
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-net.ipv4.tcp_rmem = 4096 87380 16777216
-net.ipv4.tcp_wmem = 4096 65536 16777216
-EOF
-  modprobe tcp_bbr 2>/dev/null || true
-  sysctl --system >/dev/null
-  sysctl -w net.core.default_qdisc=fq >/dev/null
-  if ! sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null; then
-    modprobe tcp_bbr 2>/dev/null || true
-    sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null
+add_sysctl() {
+  local key="$1"
+  local value="$2"
+  local required="${3:-0}"
+  if sysctl -w "${key}=${value}" >/dev/null 2>&1; then
+    printf '%s = %s\n' "${key}" "${value}"
+    return 0
   fi
+  if [[ "${required}" == "1" ]]; then
+    sysctl net.ipv4.tcp_available_congestion_control || true
+    die "无法设置 ${key}=${value}"
+  fi
+  echo "内核不支持 ${key}，已跳过" >&2
+  return 0
+}
+
+configure_bbr() {
+  install -d -m 755 /etc/modules-load.d
+  printf '%s\n' 'tcp_bbr' > /etc/modules-load.d/99-bbr.conf
+  modprobe tcp_bbr 2>/dev/null || true
+
+  local conf="/etc/sysctl.d/99-landing.conf"
+  {
+    add_sysctl net.core.default_qdisc fq 1
+    add_sysctl net.ipv4.tcp_congestion_control bbr 1
+    add_sysctl net.ipv4.tcp_fastopen 3
+    add_sysctl net.ipv4.tcp_mtu_probing 1
+    add_sysctl net.ipv4.tcp_slow_start_after_idle 0
+    add_sysctl net.ipv4.tcp_no_metrics_save 1
+    add_sysctl net.core.rmem_max 16777216
+    add_sysctl net.core.wmem_max 16777216
+    add_sysctl net.core.rmem_default 1048576
+    add_sysctl net.core.wmem_default 1048576
+    add_sysctl net.core.optmem_max 65536
+    add_sysctl net.ipv4.tcp_rmem "4096 1048576 16777216"
+    add_sysctl net.ipv4.tcp_wmem "4096 1048576 16777216"
+    add_sysctl net.core.somaxconn 8192
+    add_sysctl net.core.netdev_max_backlog 16384
+    add_sysctl net.ipv4.tcp_max_syn_backlog 8192
+    add_sysctl net.ipv4.tcp_tw_reuse 1
+    add_sysctl net.ipv4.tcp_fin_timeout 15
+    add_sysctl net.ipv4.ip_local_port_range "1024 65535"
+    add_sysctl net.ipv4.tcp_notsent_lowat 16384
+    add_sysctl net.ipv4.tcp_keepalive_time 600
+    add_sysctl net.ipv4.tcp_keepalive_intvl 30
+    add_sysctl net.ipv4.tcp_keepalive_probes 3
+    add_sysctl net.ipv4.tcp_syncookies 1
+    add_sysctl net.ipv4.tcp_rfc1337 1
+    add_sysctl fs.file-max 1048576
+  } > "${conf}"
+
+  sysctl -p "${conf}" >/dev/null
   local cc qdisc
   cc="$(sysctl -n net.ipv4.tcp_congestion_control)"
   qdisc="$(sysctl -n net.core.default_qdisc)"
@@ -303,10 +612,84 @@ EOF
   fi
 }
 
+configure_limits() {
+  cat > /etc/security/limits.d/99-landing.conf << 'EOF'
+root soft nofile 1048576
+root hard nofile 1048576
+* soft nofile 1048576
+* hard nofile 1048576
+EOF
+  install -d -m 755 /etc/systemd/system.conf.d
+  cat > /etc/systemd/system.conf.d/99-landing.conf << 'EOF'
+[Manager]
+DefaultLimitNOFILE=1048576
+EOF
+}
+
+confirm_public_ip() {
+  local detected=""
+  detected="$(curl -4 -fsS --max-time 8 https://api.ipify.org || true)"
+  detected="${detected//$'\r'/}"
+  detected="${detected//$'\n'/}"
+  if [[ -z "${detected}" ]]; then
+    echo "没有探测到公网 IPv4，链接仍使用 ${SERVER_IP}。"
+    return 0
+  fi
+  if [[ "${detected}" == "${SERVER_IP}" ]]; then
+    echo "公网 IPv4 核对通过：${detected}"
+    return 0
+  fi
+  cat << EOF
+警告：这台机器探测到的 IPv4 是 ${detected}，脚本里的落地地址是 ${SERVER_IP}。
+如果这不是要安装的那台 VPS，现在按 Ctrl+C。
+15 秒后仍会继续。继续之后，分享链接里的地址依然是 ${SERVER_IP}。
+EOF
+  local i
+  for i in 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1; do
+    printf '\r  %2d 秒后继续' "${i}"
+    sleep 1
+  done
+  printf '\n'
+}
+
+confirm_ssh_change() {
+  cat << EOF
+
+即将同时做两件事：
+  1. SSH 从 22 改到 ${SSH_PORT}
+  2. 关闭 SSH 密码登录，只接受下面这把公钥
+指纹：${SSH_PUBKEY_FINGERPRINT}
+账号：${KEY_USERS[*]}
+
+改之前请确认两件事：
+  - 云厂商安全组已经放行 TCP ${SSH_PORT}、TCP ${SS_PORT}、UDP ${SS_PORT}
+  - 你手里的私钥指纹和上面一致。本机可执行：ssh-keygen -lf 私钥.pub
+
+服务商网页控制台的密码不会改，也不会锁定。当前这个 SSH 窗口不应被主动断开。
+不要关闭它，直到新窗口用密钥登录成功：
+  ssh -i 私钥 -p ${SSH_PORT} -o IdentitiesOnly=yes 用户名@${SERVER_IP}
+如果新窗口连不上，在当前窗口执行：
+  bash /root/revert-ssh-to-22.sh
+如果当前窗口也断了，用服务商的网页控制台执行同一条命令。
+
+15 秒后继续。要取消请按 Ctrl+C。
+EOF
+  local i
+  for i in 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1; do
+    printf '\r  %2d 秒后修改 SSH' "${i}"
+    sleep 1
+  done
+  printf '\n'
+}
+
 write_credentials() {
   cat > /root/ss2022-landing.txt << EOF
 服务器 IP: ${SERVER_IP}
-SSH: ssh -p ${SSH_PORT} 你的用户名@${SERVER_IP}
+SSH 端口: ${SSH_PORT}
+SSH 登录: 仅密钥，密码登录已关闭
+公钥指纹: ${SSH_PUBKEY_FINGERPRINT}
+可用账号: ${KEY_USERS[*]}
+登录命令: ssh -i 私钥 -p ${SSH_PORT} -o IdentitiesOnly=yes 用户名@${SERVER_IP}
 BBR: 已开启
 协议: Shadowsocks 2022
 方法: ${SS_METHOD}
@@ -325,61 +708,50 @@ Clash Verge 节点:
   cipher: ${SS_METHOD}
   password: "${SS_PASSWORD}"
   udp: true
+  tfo: true
 EOF
   chmod 600 /root/ss2022-landing.txt
 }
 
-confirm_ssh_change() {
-  cat << EOF
-
-即将把 SSH 从 22 改到 ${SSH_PORT}。
-改端口前请确认云厂商安全组已经放行：
-  TCP ${SSH_PORT}
-  TCP ${SS_PORT}
-  UDP ${SS_PORT}
-当前这个 SSH 窗口不会被主动断开。请勿关闭它，直到新窗口用下面的命令登录成功：
-  ssh -p ${SSH_PORT} 用户名@${SERVER_IP}
-如果改完后新窗口连不上，在当前窗口执行：
-  bash /root/revert-ssh-to-22.sh
-
-15 秒后继续。要取消请按 Ctrl+C。
-EOF
-  local i
-  for i in 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1; do
-    printf '\r  %2d 秒后修改 SSH 端口' "${i}"
-    sleep 1
-  done
-  printf '\n'
-}
-
-verify_uri() {
-  local generated
-  generated="ss://$(printf '%s' "${SS_METHOD}:${SS_PASSWORD}" | base64 -w 0 | tr -d '=')@${SERVER_IP}:${SS_PORT}#Landing-SS2022"
-  [[ "${generated}" == "${SS_URI}" ]] || die "内置分享链接和密码不一致：${generated}"
-}
-
 main() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "请用 root 执行：sudo bash $0"
+    exit 1
+  fi
+
   verify_uri
   log "安装基础软件"
   apt-get update
-  apt-get install -y ca-certificates curl iproute2 ufw fail2ban openssh-server
+  apt-get install -y ca-certificates curl iproute2 ufw fail2ban openssh-server openssh-client
 
-  log "开启 BBR"
+  log "核对公网地址"
+  confirm_public_ip
+
+  log "检查公钥"
+  validate_pubkey
+
+  log "开启 BBR 和网络参数"
   configure_bbr
+  configure_limits
 
   log "配置防火墙。先放行 22 和 ${SSH_PORT}，再启用 UFW"
   configure_firewall
 
   log "安装 sing-box 并写入 SS2022 配置"
   install_singbox
+  sing-box version || true
 
-  log "写入 SSH 回滚脚本"
+  log "写入 SSH 公钥"
+  install_keys
+
+  log "备份当前 SSH 配置并写入回滚脚本"
+  backup_sshd
   write_revert_script
 
   confirm_ssh_change
 
-  log "把 SSH 改为 ${SSH_PORT}"
-  configure_ssh_port
+  log "把 SSH 改为 ${SSH_PORT}，并关闭密码登录"
+  configure_ssh
 
   log "按新 SSH 端口配置 fail2ban"
   if ! configure_fail2ban; then
@@ -394,7 +766,10 @@ main() {
 ================ 安装完成，下面两段直接复制 ================
 
 BBR: 已开启 ($(sysctl -n net.ipv4.tcp_congestion_control) + $(sysctl -n net.core.default_qdisc))
-SSH: ssh -p ${SSH_PORT} 你的用户名@${SERVER_IP}
+SSH: ssh -i 私钥 -p ${SSH_PORT} -o IdentitiesOnly=yes 用户名@${SERVER_IP}
+可用账号: ${KEY_USERS[*]}
+公钥指纹: ${SSH_PUBKEY_FINGERPRINT}
+网页控制台密码没有改动。SSH 密码登录已经关闭。
 
 ---------- SS 链接（整行复制）----------
 ${SS_URI}
@@ -407,12 +782,14 @@ ${SS_URI}
   cipher: ${SS_METHOD}
   password: "${SS_PASSWORD}"
   udp: true
+  tfo: true
 
 上面的内容也保存在 /root/ss2022-landing.txt
-现在不要关闭这个窗口。另开一个终端，用 22022 登录成功后再关闭：
-  ssh -p ${SSH_PORT} 你的用户名@${SERVER_IP}
+现在不要关闭这个窗口。另开一个终端，用密钥登录成功后再关闭。
 EOF
   ss -lntup | grep -E ":${SSH_PORT}|:${SS_PORT}" || true
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

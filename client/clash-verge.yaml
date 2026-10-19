@@ -18,11 +18,12 @@ dns:
 proxies:
   - name: "落地-SS2022"
     type: ss
-    server: 150.66.49.113
+    server: 61.195.99.30
     port: 24443
     cipher: 2022-blake3-aes-256-gcm
-    password: "WaLb8NWiW90b6m5MtmJ0GiaVODUkPcsz0JAf2YphvV0="
+    password: "tPWMZB2C6gOCGG2tAtCesH3mgN8b2j93YTVhlqEjiIo="
     udp: true
+    tfo: true
 
 proxy-groups:
   - name: "PROXY"
