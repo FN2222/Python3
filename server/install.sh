@@ -300,6 +300,9 @@ effective_auth_ok() {
   grep -q '^passwordauthentication no$' <<<"${out}" || return 1
   grep -q '^kbdinteractiveauthentication no$' <<<"${out}" || return 1
   grep -q '^pubkeyauthentication yes$' <<<"${out}" || return 1
+  if grep '^port ' <<<"${out}" | grep -qv "^port ${SSH_PORT}$"; then
+    return 1
+  fi
   grep -q "^port ${SSH_PORT}$" <<<"${out}" || return 1
   if [[ "${user}" == "root" ]]; then
     grep -Eq '^permitrootlogin (prohibit-password|without-password)$' <<<"${out}" || return 1
@@ -368,12 +371,14 @@ configure_ssh() {
   socket_unit="$(ssh_socket_unit)"
 
   ensure_sshd_include
-  sed -i -E 's/^[[:space:]]*Port[[:space:]]+/# Port moved to sshd_config.d\/99-port.conf: /' /etc/ssh/sshd_config
+  ssh-keygen -A
+  install -d -m 755 /run/sshd
+  sed -i -E 's/^[[:space:]]*Port[[:space:]]+/# Port moved to sshd_config.d\/99-port.conf: /I' /etc/ssh/sshd_config
   install -d -m 755 /etc/ssh/sshd_config.d
   shopt -s nullglob
   for extra in /etc/ssh/sshd_config.d/*.conf; do
     [[ "$(basename "${extra}")" == "99-port.conf" ]] && continue
-    sed -i -E 's/^[[:space:]]*Port[[:space:]]+/# Port moved to 99-port.conf: /' "${extra}"
+    sed -i -E 's/^[[:space:]]*Port[[:space:]]+/# Port moved to 99-port.conf: /I' "${extra}"
   done
   shopt -u nullglob
 
