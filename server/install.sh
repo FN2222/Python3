@@ -40,10 +40,17 @@ ipv6_enabled() {
 port_listening() {
   local proto="$1"
   local port="$2"
+  local filter="sport = :${port}"
   if [[ "${proto}" == "tcp" ]]; then
-    ss -lnt "sport = :${port}" | awk 'NR>1 { found=1 } END { exit found ? 0 : 1 }'
+    if ss -lnt "${filter}" | awk 'NR>1 { found=1 } END { exit found ? 0 : 1 }'; then
+      return 0
+    fi
+    ss -lnt | grep -E "[:.]${port}([^0-9]|$)" >/dev/null
   else
-    ss -lnu "sport = :${port}" | awk 'NR>1 { found=1 } END { exit found ? 0 : 1 }'
+    if ss -lnu "${filter}" | awk 'NR>1 { found=1 } END { exit found ? 0 : 1 }'; then
+      return 0
+    fi
+    ss -lnu | grep -E "[:.]${port}([^0-9]|$)" >/dev/null
   fi
 }
 
@@ -113,7 +120,10 @@ install_authorized_key() {
       */bash|*/sh|*/zsh|*/fish|*/dash) ;;
       *)
         echo "root 的登录 shell 是 ${shell}，改为 /bin/bash，否则密钥无法登录 root。"
-        usermod -s /bin/bash root
+        if ! usermod -s /bin/bash root; then
+          echo "警告：没法修改 root 的 shell。root 可能仍不能登录，会继续给其他账号装公钥。"
+          return 0
+        fi
         ;;
     esac
   fi
@@ -300,9 +310,6 @@ effective_auth_ok() {
   grep -q '^passwordauthentication no$' <<<"${out}" || return 1
   grep -q '^kbdinteractiveauthentication no$' <<<"${out}" || return 1
   grep -q '^pubkeyauthentication yes$' <<<"${out}" || return 1
-  if grep '^port ' <<<"${out}" | grep -qv "^port ${SSH_PORT}$"; then
-    return 1
-  fi
   grep -q "^port ${SSH_PORT}$" <<<"${out}" || return 1
   if [[ "${user}" == "root" ]]; then
     grep -Eq '^permitrootlogin (prohibit-password|without-password)$' <<<"${out}" || return 1
@@ -331,48 +338,16 @@ ssh_socket_unit() {
   return 0
 }
 
-write_socket_override() {
-  local socket_unit="$1"
-  [[ -n "${socket_unit}" ]] || return 0
-  mkdir -p "/etc/systemd/system/${socket_unit}.d"
-  if ipv6_enabled; then
-    cat > "/etc/systemd/system/${socket_unit}.d/override.conf" << EOF
-[Socket]
-ListenStream=
-BindIPv6Only=ipv6-only
-ListenStream=0.0.0.0:${SSH_PORT}
-ListenStream=[::]:${SSH_PORT}
-EOF
-  else
-    cat > "/etc/systemd/system/${socket_unit}.d/override.conf" << EOF
-[Socket]
-ListenStream=
-ListenStream=0.0.0.0:${SSH_PORT}
-EOF
-  fi
+remove_socket_overrides() {
+  rm -f /etc/systemd/system/ssh.socket.d/override.conf
+  rm -f /etc/systemd/system/sshd.socket.d/override.conf
+  rm -f /etc/ssh/sshd_config.d/00-restore-password.conf
+  rmdir /etc/systemd/system/ssh.socket.d 2>/dev/null || true
+  rmdir /etc/systemd/system/sshd.socket.d 2>/dev/null || true
 }
 
-restart_ssh() {
-  local socket_unit="$1"
-  systemctl daemon-reload
-  if [[ -n "${socket_unit}" ]]; then
-    systemctl restart "${socket_unit}"
-  elif systemctl cat ssh.service >/dev/null 2>&1; then
-    systemctl enable ssh.service
-    systemctl restart ssh.service
-  else
-    systemctl enable sshd.service
-    systemctl restart sshd.service
-  fi
-}
-
-configure_ssh() {
-  local socket_unit extra user ok
-  socket_unit="$(ssh_socket_unit)"
-
-  ensure_sshd_include
-  ssh-keygen -A
-  install -d -m 755 /run/sshd
+comment_port_directives() {
+  local extra
   sed -i -E 's/^[[:space:]]*Port[[:space:]]+/# Port moved to sshd_config.d\/99-port.conf: /I' /etc/ssh/sshd_config
   install -d -m 755 /etc/ssh/sshd_config.d
   shopt -s nullglob
@@ -381,10 +356,23 @@ configure_ssh() {
     sed -i -E 's/^[[:space:]]*Port[[:space:]]+/# Port moved to 99-port.conf: /I' "${extra}"
   done
   shopt -u nullglob
+}
 
-  cat > /etc/ssh/sshd_config.d/99-port.conf << EOF
+write_port_conf() {
+  local keep_22="$1"
+  if [[ "${keep_22}" == "yes" ]]; then
+    cat > /etc/ssh/sshd_config.d/99-port.conf << EOF
+Port 22
 Port ${SSH_PORT}
 EOF
+  else
+    cat > /etc/ssh/sshd_config.d/99-port.conf << EOF
+Port ${SSH_PORT}
+EOF
+  fi
+}
+
+write_auth_conf() {
   cat > /etc/ssh/sshd_config.d/00-landing-auth.conf << 'EOF'
 PubkeyAuthentication yes
 PasswordAuthentication no
@@ -397,48 +385,136 @@ ClientAliveInterval 30
 ClientAliveCountMax 4
 X11Forwarding no
 EOF
-  write_socket_override "${socket_unit}"
+}
 
+dump_ssh_failure() {
+  {
+    echo "===== $(date '+%F %T') ssh failure ====="
+    sshd -t || true
+    echo "===== sshd -T ====="
+    sshd -T 2>&1 | grep -Ei 'port |passwordauthentication|kbdinteractive|pubkeyauthentication|permitrootlogin|authenticationmethods' || true
+    echo "===== listeners ====="
+    ss -lntup || true
+    echo "===== units ====="
+    systemctl status ssh.socket ssh.service --no-pager -l || true
+    systemctl cat ssh.socket || true
+    echo "===== journal ====="
+    journalctl -u ssh.socket -u ssh.service -u ssh -n 40 --no-pager || true
+  } | tee /root/landing-ssh-error.txt >&2 || true
+}
+
+reload_ssh_listener() {
+  local socket_unit
+  trap '' HUP
+  systemctl daemon-reload || return 1
+  socket_unit="$(ssh_socket_unit)"
+  if [[ -n "${socket_unit}" ]]; then
+    systemctl restart "${socket_unit}" || return 1
+    return 0
+  fi
+  if systemctl cat ssh.service >/dev/null 2>&1; then
+    systemctl enable ssh.service || return 1
+    systemctl restart ssh.service || return 1
+    return 0
+  fi
+  systemctl enable sshd.service || return 1
+  systemctl restart sshd.service || return 1
+}
+
+disable_socket_activation() {
+  trap '' HUP
+  echo "套接字方式没有打开 ${SSH_PORT}，改为由 ssh 服务直接监听。"
+  systemctl disable --now ssh.socket >/dev/null 2>&1 || true
+  systemctl disable --now sshd.socket >/dev/null 2>&1 || true
+  systemctl daemon-reload || return 1
+  if systemctl cat ssh.service >/dev/null 2>&1; then
+    systemctl enable ssh.service || return 1
+    systemctl restart ssh.service || return 1
+    return 0
+  fi
+  systemctl enable sshd.service || return 1
+  systemctl restart sshd.service || return 1
+}
+
+rollback_ssh_or_die() {
+  local message="$1"
+  dump_ssh_failure
+  echo "sing-box 已经在 ${SS_PORT} 提供 TCP 和 UDP。这次失败的只是 SSH。"
+  bash /root/revert-ssh-to-22.sh || restore_sshd_files || true
+  die "${message} 详情在 /root/landing-ssh-error.txt。当前请继续用 22 端口登录。"
+}
+
+auth_ok_for_installed_users() {
+  local user
+  for user in "${KEY_USERS[@]}"; do
+    if ! effective_auth_ok "${user}"; then
+      echo "账号 ${user} 的生效 SSH 配置还不是仅密钥。"
+      sshd -T -C "user=${user},host=localhost,addr=127.0.0.1" 2>&1 | grep -Ei 'passwordauthentication|kbdinteractive|pubkeyauthentication|permitrootlogin|port |authenticationmethods' || true
+      return 1
+    fi
+  done
+  return 0
+}
+
+configure_ssh() {
+  trap '' HUP
+  remove_socket_overrides
+  ensure_sshd_include
+  ssh-keygen -A || true
+  install -d -m 755 /run/sshd
+  comment_port_directives
+
+  echo "先同时监听 22 和 ${SSH_PORT}，密码登录暂时保持可用。"
+  write_port_conf yes
+  rm -f /etc/ssh/sshd_config.d/00-landing-auth.conf
   if ! sshd -t; then
-    echo "sshd 配置校验失败，正在还原文件。SSH 进程还没有重启。"
+    echo "sshd 配置校验失败，正在还原。SSH 还没有重启。"
     restore_sshd_files
     die "sshd -t 失败，SSH 仍是原来的端口和登录方式"
   fi
 
-  ok=1
-  for user in "${KEY_USERS[@]}"; do
-    if ! effective_auth_ok "${user}"; then
-      ok=0
-      break
-    fi
-  done
-  if [[ "${ok}" -ne 1 ]]; then
-    echo "云镜像里的配置盖过了密钥登录，正在注释冲突项后重新检查。"
-    neutralize_conflicting_auth
-    if ! sshd -t; then
-      restore_sshd_files
-      die "注释冲突项后 sshd -t 失败，已还原，SSH 未重启"
-    fi
-    for user in "${KEY_USERS[@]}"; do
-      if ! effective_auth_ok "${user}"; then
-        echo "----- sshd -T user=${user} -----"
-        sshd -T -C "user=${user},host=localhost,addr=127.0.0.1" | grep -Ei 'passwordauthentication|kbdinteractive|pubkeyauthentication|permitrootlogin|port |authenticationmethods' || true
-        restore_sshd_files
-        die "无法确认 ${user} 只会接受密钥。已还原配置文件，SSH 未重启"
-      fi
-    done
+  if ! reload_ssh_listener; then
+    echo "按原来的方式重启 SSH 失败。"
+    disable_socket_activation || rollback_ssh_or_die "SSH 重启失败"
   fi
-
-  if ! restart_ssh "${socket_unit}"; then
-    bash /root/revert-ssh-to-22.sh || true
-    die "重启 SSH 失败，已尝试恢复到 22 和密码登录"
-  fi
-
   sleep 1
   if ! port_listening tcp "${SSH_PORT}"; then
-    echo "${SSH_PORT} 没有监听成功，正在恢复 SSH。"
-    bash /root/revert-ssh-to-22.sh || true
-    die "SSH 端口修改失败，已尝试恢复。请查看 journalctl -u ${socket_unit:-ssh} -n 50 --no-pager"
+    disable_socket_activation || rollback_ssh_or_die "${SSH_PORT} 没有监听"
+    sleep 1
+  fi
+  if ! port_listening tcp "${SSH_PORT}"; then
+    rollback_ssh_or_die "${SSH_PORT} 没有监听成功"
+  fi
+  echo "${SSH_PORT} 已经在监听。下面关闭密码登录，并去掉 22。"
+
+  write_port_conf no
+  write_auth_conf
+  if ! sshd -t; then
+    write_port_conf yes
+    rm -f /etc/ssh/sshd_config.d/00-landing-auth.conf
+    reload_ssh_listener || true
+    rollback_ssh_or_die "关闭密码前，sshd -t 失败"
+  fi
+  if ! auth_ok_for_installed_users; then
+    echo "云镜像里的配置盖过了密钥登录，正在注释冲突项后重新检查。"
+    neutralize_conflicting_auth
+    if ! sshd -t || ! auth_ok_for_installed_users; then
+      write_port_conf yes
+      rm -f /etc/ssh/sshd_config.d/00-landing-auth.conf
+      reload_ssh_listener || true
+      rollback_ssh_or_die "无法确认已安装公钥的账号只会接受密钥"
+    fi
+  fi
+
+  if ! reload_ssh_listener; then
+    write_port_conf yes
+    rm -f /etc/ssh/sshd_config.d/00-landing-auth.conf
+    disable_socket_activation || true
+    rollback_ssh_or_die "切换到仅密钥登录时重启失败"
+  fi
+  sleep 1
+  if ! port_listening tcp "${SSH_PORT}"; then
+    rollback_ssh_or_die "切换后 ${SSH_PORT} 不再监听"
   fi
 
   if port_listening tcp 22; then
@@ -660,9 +736,10 @@ EOF
 confirm_ssh_change() {
   cat << EOF
 
-即将同时做两件事：
-  1. SSH 从 22 改到 ${SSH_PORT}
-  2. 关闭 SSH 密码登录，只接受下面这把公钥
+即将分两步改 SSH：
+  1. 先让 22 和 ${SSH_PORT} 同时监听，密码登录先保持可用
+  2. 确认 ${SSH_PORT} 已经打开后，再关闭密码登录，并去掉 22
+只接受下面这把公钥
 指纹：${SSH_PUBKEY_FINGERPRINT}
 账号：${KEY_USERS[*]}
 

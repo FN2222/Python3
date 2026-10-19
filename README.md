@@ -149,10 +149,10 @@ fs.file-max = 1048576
 3. 把公钥装进 root 和现有可登录账号的 `authorized_keys`。root 的 shell 如果是 `nologin`，会改成 `/bin/bash`。原来的 shell 记在 `/root/sshd-backup/root-shell`。
 4. 启用 UFW：默认拒绝入站、放行出站，并放行 `22/tcp`、`22022/tcp`、`24443/tcp`、`24443/udp`。确认 SSH 已经改到 `22022` 并且 `22` 不再监听之后，再删掉 `22` 的放行规则。
 5. 从 `https://deb.sagernet.org/` 安装 sing-box，写入 `/etc/sing-box/config.json`，检查配置，然后开机自启。配置里打开了 TCP Fast Open，TCP 保活初始间隔是 2 分钟。没有写 `network`，所以 TCP 和 UDP 一起监听。
-6. 备份原来的 SSH 配置，再把 SSH 改成密钥登录和 `22022`。Ubuntu 26.04 的 SSH 由 `ssh.socket` 接管监听，所以脚本同时写：
-   - `/etc/ssh/sshd_config.d/00-landing-auth.conf`：关闭密码和键盘交互登录，允许 root 使用密钥
-   - `/etc/ssh/sshd_config.d/99-port.conf`：`Port 22022`
-   - `/etc/systemd/system/ssh.socket.d/override.conf`：清空原来的 `22`，只听 `22022`
+6. 备份原来的 SSH 配置，再把 SSH 改成密钥登录和 `22022`。Ubuntu 26.04 由 `ssh.socket` 监听，端口以 `sshd` 配置为准，`sshd-socket-generator` 会在 `daemon-reload` 时写出实际套接字。脚本不再写 `ssh.socket` 的手工覆盖，避免和 `BindIPv6Only=ipv6-only` 冲突后把服务拉起来又关掉。它分两步：
+   - 先让 `22` 和 `22022` 同时监听，密码登录先保持可用
+   - 确认 `22022` 已经在监听后，再写 `/etc/ssh/sshd_config.d/00-landing-auth.conf` 关闭密码，并把 `/etc/ssh/sshd_config.d/99-port.conf` 收成只剩 `Port 22022`
+   - 如果套接字生成器没有打开 `22022`，就关掉 `ssh.socket`，改由 `ssh.service` 自己监听
 7. 改端口前用 `sshd -T` 核对每个已写入公钥的账号。生效结果必须是密码关闭、密钥开启、端口 `22022`。核对失败时还原配置文件，不重启 SSH。
 8. 让 fail2ban 只看守 `22022`。5 次失败后封禁 1 小时，封禁方式走 UFW。
 9. 把连接信息写到 `/root/ss2022-landing.txt`，权限 `600`。
